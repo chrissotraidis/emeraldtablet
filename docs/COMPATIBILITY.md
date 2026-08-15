@@ -48,5 +48,6 @@ boundary.
   victory conditions per mission).
 - Long-session performance, thermals, and battery on physical hardware.
 - Physical-device touch, audio routes, and Apple Pencil (G7/G8 human gates).
-- Original-game save files produced by the 1999 release load; the reverse
-  (Akhenaten save → original game) is not supported or tested.
+- Importing original 1999-game save files: **not measured** — no original
+  save was supplied. Akhenaten saves use its own format 189; loading them in
+  the original 1999 game is not supported or tested.

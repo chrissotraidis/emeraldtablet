@@ -60,6 +60,7 @@ upstream timing/data behaviors, not Apple-patch regressions (see below).
 | Audio | G1 Mac play: FLAC/MP3/OGG/MIDI initialized (57) during authentic Nubt play |
 | Videos | G3: intro video played with active audio session on iPhone Simulator |
 | Original save load | G1/G3/G5: original-format saves (VERSION 189, 114 sections, 0 missing) load on macOS, iPhone, iPad |
+| Original 1999-game save import | **Not measured** — no original-game save was supplied locally; Akhenaten saves are format 189. Loading Akhenaten saves in the 1999 game is not supported or tested. |
 | macOS → iOS save | G3/G5: macOS quicksave loaded on iPhone/iPad via Continue |
 | iOS → macOS save | **Measured**: iPhone-created `lifecycle.svx` (format 189) copied into the macOS data dir and loaded via `__game_load_savegame` — `File read successful: ...iphone.svx 0@ --- CONTAINER rev 1, VERSION 189, 114 sections (0 missing) ---`, marker `g6_ios_save_loaded`. Evidence: `artifacts/private/g6/iphone-lifecycle-proof.svx`, `iphone-save-on-mac.svx` (gitignored) |
 | Sandbox / custom map | `data/default.map` + `Maps/*.map` load (probe) |

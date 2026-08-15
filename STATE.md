@@ -16,7 +16,7 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 | G2 — iOS build seam | PASS | `GAME_PLATFORM_IOS` split, minimal iOS backend, iOS app target (families 1,2), desktop-only components off. iPhone Simulator SDK build links and audits clean (arm64, iOS 15.0, UIKit/Metal only). `docs/validation/g2-ios-seam.md`, `docs/validation/g2-ios-audit.txt` |
 | G3 — iPhone Simulator | IN PROGRESS | Installed + launched on iPhone 16 (iOS 18.5); native Game Data Required flow; UIDocumentPicker importer end-to-end; authentic data reaches menu, family, chronology, Nubt briefing; macOS save (format 189) loaded via Continue → Nubt city on phone with autosaves; in-city tap works. Phone touch scale/safe-area/keyboard pass remains. `docs/validation/g3-iphone-simulator.md` |
 | G4 — iPhone lifecycle | IN PROGRESS | Background → lifecycle autosave (`Save/<player>/lifecycle.svx`, format 189) + sim pause implemented and measured; terminate-while-backgrounded + relaunch keeps the save. 20 bg/fg cycles, lifecycle-load via UI, manual-save preservation, import-interrupt/low-storage, update-survival remain. `docs/validation/g4-iphone-lifecycle.md` |
-| G5 — iPad Simulator and Pencil shell | IN PROGRESS | Pencil patch (0004) rebuilt and proven on iPad mini: Options menu shows "Pencil mode: OFF/ON" and toggles. 13" proven: full-screen city-from-save + native "⋮" overlay with working Pause/Speed actions. 11" matrix + evidence doc pending. `docs/validation/g5-ipad-pencil-shell.md` |
+| G5 — iPad Simulator and Pencil shell | CORE PASS | Proven on all three iPads: mini (Pencil row toggles), 13" (full-screen city-from-save, native "⋮" overlay, Pause/Speed actions), 11" (city-from-save, full-screen render, overlay, Pencil toggle). `docs/validation/g5-ipad-pencil-shell.md` |
 | G6 — Compatibility matrix | NOT STARTED | Developer-preview subset after G5. |
 | G7 — Physical iPhone | HUMAN GATE | No iPhone is attached. |
 | G8 — Physical iPad and Apple Pencil | HUMAN GATE | No iPad or Pencil is attached. |
@@ -108,6 +108,29 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
   on 13", overlay presence, sheet open, Pause/Speed reach the engine.
 - Next: 11" city-from-save + Options-row check, then G3/G4 remainders, G6, G9.
 - Fact vs inference: all facts measured; simulated Pencil is not physical
+  Pencil acceptance (G8).
+
+### 2026-08-15 — G5 11" city-from-save + overlay + Pencil toggle
+
+- Host/OS: Chris-Macbook-Air-M1.local / macOS 26.5.2
+- Wrapper: `e979df7` + G0-G5/G9-prep tree. Engine pin
+  `38cb947ead3895408ea32f74fda6e37921a42bd3` + patches 0001-0006.
+- Device: iPad Pro 11-inch (M4) Simulator, iOS 18.5, UDID
+  `08636791-2675-4675-8335-EF72EF954DCF` (13" shut down first; one simulator
+  per session).
+- Command: `simctl install` of the 0001-0006 build; cfg re-pointed to the new
+  data container; `simctl launch` (PID 29326).
+- Result: log `Creating screen 1210 x 834` + `Render texture created
+  (1210 x 834)`; Continue loaded the macOS save into Nubt city; device
+  screenshot content bbox = full 1668x2420 framebuffer (99.9% x 100%).
+  The native "⋮" overlay opens the UIKit sheet (Speed + 80% → 90%); the
+  Options dropdown Pencil row toggles OFF → ON.
+- Evidence: `docs/validation/g5-ipad-pencil-shell.md`,
+  `artifacts/private/g5-sim/11inch/` (gitignored).
+- Proves: 11" install/PID/render, city-from-save, full-screen fill, overlay,
+  Pencil-row toggle on a second iPad size.
+- Next: G3/G4 remainders (iPhone), G6 subset, G9.
+- Fact vs inference: facts measured; simulated Pencil is not physical
   Pencil acceptance (G8).
 
 ### 2026-08-15 — check-repo-safety.sh patch-queue fix

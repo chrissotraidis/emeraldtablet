@@ -1,7 +1,8 @@
 # G5 — iPad Simulator and Pencil shell
 
-Status: CORE PROVEN on iPad mini (build, install, city load, Pencil option visible and togglable)
-and iPad Pro 13" (full-screen city-from-save, native overlay, Pause/Speed actions).
+Status: CORE PROVEN on iPad mini (build, install, city load, Pencil option visible and togglable),
+iPad Pro 13" (full-screen city-from-save, native overlay, Pause/Speed actions), and
+iPad Pro 11" (city-from-save, full-screen render, overlay, Pencil toggle).
 Host: Chris-Macbook-Air-M1.local / macOS 26.5.2
 Wrapper: `e979df7` + G0-G5/G9-prep tree. Engine pin
 `38cb947ead3895408ea32f74fda6e37921a42bd3` + patches 0001-0006.
@@ -155,11 +156,33 @@ each device; user-configured scale still wins. Applies cleanly after 0001-0004.
   reach the engine.
 - Does NOT prove: physical Pencil (G8) or a real stylus touchId in a session.
 
+### 2026-08-15 — 11" city-from-save + overlay + Pencil toggle
+
+- Device: iPad Pro 11-inch (M4) Simulator, iOS 18.5, UDID
+  `08636791-2675-4675-8335-EF72EF954DCF` (only simulator booted; 13" shut down
+  first per the one-simulator rule).
+- `simctl install` of the patches-0001-0006 build; cfg re-pointed to the new
+  data container; launch (PID 29326). Log: `Window resized to 1210 x 834`,
+  `Render texture created (1210 x 834)` — full native 11" landscape.
+- Continue loaded the macOS-created save into the Nubt city (same family state
+  as G1/13"; "Flood plain" inspector shown). Device screenshot content bbox =
+  full 1668x2420 framebuffer (99.9% x 100% measured) — the city fills the screen.
+- Native "⋮" overlay (`emeraldtablet.overlay-menu`) opens the UIKit sheet with
+  Pause/Speed/help; Speed + moved the readout 80% → 90% (before/after device
+  screenshots). The Options dropdown shows the Pencil row and clicking it
+  toggles OFF → ON (window + device screenshots).
+- Evidence (private, gitignored): `artifacts/private/g5-sim/11inch/`
+  `01-city-device.png`, `02-overlay-sheet.png`, `03-after-speed.png`,
+  `04-options-dropdown.png`, `05-pencil-ON-device.png`.
+- Proves: 11" install/PID/render, city-from-save, full-screen fill, overlay
+  presence + Speed action, Pencil-mode row toggle on a second iPad size.
+- Does NOT prove: physical Pencil (G8) or a real stylus touchId in a session.
+
 ### Pending for this gate
 
 - iPad Pro 11" (`08636791-2675-4675-8335-EF72EF954DCF`) and iPad Pro 13"
-  installs → city-from-save proof and the same Options-row check (13" done
-  2026-08-15 above; 11" still open).
+  installs → city-from-save proof and the same Options-row check (both done
+  2026-08-15 above).
 - Phone-vs-tablet default independence and long-press/two-finger behaviors are
   G3/G5 polish items; simulated-Pencil-only wording in README/docs.
 

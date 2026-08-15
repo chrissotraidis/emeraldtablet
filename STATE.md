@@ -120,6 +120,20 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
   Full scan now passes with patches 0001-0006 applied.
 - Fact vs inference: fact (script behavior measured locally).
 
+### 2026-08-15 — stable developer-preview build published to main
+
+- User-directed: update the repo to the latest stable state, make the README
+  follow the CaesarPad structure/tone, and push/merge to main.
+- Commit `bef7d8a` (wrapper): pinned engine gitlink `38cb947...`, patch queue
+  0001-0006, CaesarPad-structured README, updated STATE/GOAL_LOOP/G5 docs,
+  safety-script patch-queue handling, raw hermetic logs moved to ignored
+  `artifacts/private/g1/`.
+- Verified: local `HEAD` == `origin/main` == GitHub API `main`
+  (`bef7d8a00c5b61a9e74bbaf55cd3f80675a68796`); published tree contains only
+  wrapper sources/docs/patches/scripts/tests and the engine gitlink; no game
+  data, saves, packages, signing material, or private evidence on the remote.
+- Fact vs inference: fact (SHA triple-match and tree audit measured).
+
 ## Experiments
 
 ### 2026-08-13 — workspace inventory

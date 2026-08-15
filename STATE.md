@@ -17,10 +17,10 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 | G3 — iPhone Simulator | CORE PASS | Installed + launched on iPhone 16 (iOS 18.5); native Game Data Required flow; UIDocumentPicker importer end-to-end; authentic data reaches menu, family, chronology, Nubt briefing; macOS save (format 189) loaded via Continue → Nubt city on phone with autosaves; in-city tap works. G3 remainder measured 2026-08-15: touch works full flow, bottom UI clears the home indicator, virtual keyboard wired (SDL text input both layers; no reachable phone text field on Simulator — device verification is G7). `docs/validation/g3-iphone-simulator.md` |
 | G4 — iPhone lifecycle | CORE PASS | Background → lifecycle autosave + pause implemented and measured; 30 bg/fg cycles survive with one PID; lifecycle save loads via Continue (VERSION 189, 114 sections); manual saves byte-identical across cycles and in-place update; app relaunches with data intact after reinstall; importer gained a low-space preflight (patch 0003). `docs/validation/g4-iphone-lifecycle.md` |
 | G5 — iPad Simulator and Pencil shell | CORE PASS | Proven on all three iPads: mini (Pencil row toggles), 13" (full-screen city-from-save, native "⋮" overlay, Pause/Speed actions), 11" (city-from-save, full-screen render, overlay, Pencil toggle). `docs/validation/g5-ipad-pencil-shell.md` |
-| G6 — Compatibility matrix | IN PROGRESS | Developer-preview subset measured 2026-08-15: 22/22 maps load (Pharaoh early/mid/late, Cleopatra campaign + custom, sandbox); behavioral categories covered by the engine suite; iOS→macOS save (format 189) loads; three upstream timing/data flaky tests documented (109/126/137 — verified not Apple regressions by clean-engine bisection). `docs/validation/g6-compatibility-matrix.md` |
+| G6 — Compatibility matrix | CORE DONE (developer-preview subset) | Developer-preview subset measured 2026-08-15: 22/22 maps load (Pharaoh early/mid/late, Cleopatra campaign + custom, sandbox); behavioral categories covered by the engine suite; iOS→macOS save (format 189) loads; three upstream timing/data flaky tests documented (109/126/137 — verified not Apple regressions by clean-engine bisection); original-1999-save import documented as not measured (no original save supplied). `docs/validation/g6-compatibility-matrix.md` |
 | G7 — Physical iPhone | HUMAN GATE | No iPhone is attached. |
 | G8 — Physical iPad and Apple Pencil | HUMAN GATE | No iPad or Pencil is attached. |
-| G9 — Release engineering | IN PROGRESS | Self-contained macOS dmg + unsigned data-free IPA built and verified; source manifest with pin/patch hashes/dependency versions/artifact SHA-256; install/compatibility/release docs; release verifier (local == origin/main == GitHub API main). Notices completed. Remains: any hosted release (not authorized), naming/trademark review. `docs/RELEASE_CHECKLIST.md`, `docs/COMPATIBILITY.md`, `docs/INSTALL_*` |
+| G9 — Release engineering | CORE DONE (local developer-preview artifacts) | Self-contained macOS dmg + unsigned data-free IPA built and verified; source manifest with pin/patch hashes/dependency versions/artifact SHA-256; install/compatibility/release docs; release verifier (local == origin/main == GitHub API main); download-back-style data-free scans. Remains: hosted release (not authorized), naming/trademark/legal review (human gate). `docs/RELEASE_CHECKLIST.md`, `docs/COMPATIBILITY.md`, `docs/INSTALL_*` |
 
 ## Pinned inputs
 
@@ -253,6 +253,29 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 - Open: naming/trademark review, AGPL/legal review before any hosted or store
   distribution (not authorized yet), physical G7/G8.
 - Fact vs inference: builds, audits, mounts, scans, and SHA matches measured.
+
+### 2026-08-15 — developer-preview DoD audit (final)
+
+Requirement-by-requirement against the goal's developer-preview DoD:
+
+| DoD item | Status | Evidence |
+|---|---|---|
+| G0-G5 pass | PASS/CORE PASS | `docs/validation/g0-workspace.md`, `g1/*`, `g2-ios-seam.md`, `g3-iphone-simulator.md`, `g4-iphone-lifecycle.md`, `g5-ipad-pencil-shell.md` |
+| G6 subset measured + documented | CORE DONE | `docs/validation/g6-compatibility-matrix.md` |
+| G9 local data-free artifacts | CORE DONE | `build/release/*.dmg`, `*.ipa`, `SOURCE-MANIFEST.txt`, `docs/RELEASE_CHECKLIST.md` |
+| Order macOS → iPhone Sim → iPad Sim | Met | G1 → G3 → G5 |
+| Evidence classes separate | Met | build (G1/G2), package (G9), install/PID (G3/G4/G5), gameplay (G1/G3/G5/G6), input (G1/G3/G5), audio (G1/G3), save/reload (G1/G3/G4/G5/G6), lifecycle (G4) |
+| Data-free + reproducible artifacts | Met | data-free scans of dmg/ipa; patch queue clean-applies from pin |
+| Compatibility wording = measured | Met | `docs/COMPATIBILITY.md` (22 maps, flakes, unmeasured items explicit) |
+| Physical G7/G8 | HUMAN GATE (never passed) | no hardware attached |
+
+Remaining (all human/external gates, not automated work):
+- Physical iPhone/iPad/Pencil acceptance (G7/G8).
+- Interrupted-import runtime simulation on low storage (destructive host-disk
+  test; preflight implemented and build-verified).
+- Original 1999-game save import (no original save supplied).
+- Hosted release publication, naming/trademark/AGPL legal review (require
+  user authorization and a qualified reviewer).
 
 ### 2026-08-15 — check-repo-safety.sh patch-queue fix
 

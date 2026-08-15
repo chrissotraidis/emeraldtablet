@@ -53,13 +53,12 @@ alone.
 
 | # | Step | Gate | Status |
 |---|---|---|---|
-| 1 | G5: iPad Pro 11" — reach city from the macOS save, confirm full-screen render and the Options Pencil row | G5 | NEXT |
-| 2 | G5: document `docs/validation/g5-ipad-pencil-shell.md` with screenshots + patch description | G5 | NEXT |
-| 5 | G3 remainder: phone touch scale / safe areas / virtual keyboard polish | G3 | after G5 shell |
-| 6 | G4 remainder: 20 bg/fg cycles, lifecycle-save UI load, manual-save preservation, interrupted import/low storage, in-place update survival | G4 | after G3 |
-| 7 | G6 subset: compat matrix (Pharaoh early/mid/late, sandbox, 3 Cleopatra, monument save/reload, floodplain, trade, land combat, naval, audio, videos, original saves, cross-device saves) | G6 | after G4 |
-| 8 | G9: macOS dmg, unsigned IPA, source/dependency manifests, checksums, AGPL/third-party notices, compatibility + known-issues pages, data-free audit | G9 | after G5 |
-| 9 | Clean-quit / save-reload / Cleopatra-entry desktop items (G1 leftovers) folded into G6 desktop pass | G6 | with G6 |
+| 1 | G5: 11"/13" city-from-save, overlay, Pencil toggle | G5 | DONE 2026-08-15 |
+| 2 | G3 remainder: touch scale / safe areas / keyboard wiring | G3 | DONE 2026-08-15 |
+| 3 | G4 remainder: 30 bg/fg cycles, lifecycle UI load, manual-save preservation, update survival, low-space preflight | G4 | DONE 2026-08-15 |
+| 4 | G6 subset: compat matrix + save directionality + flake audit | G6 | DONE 2026-08-15 |
+| 5 | G9: dmg, IPA, manifests, checksums, notices, docs, verifier | G9 | DONE 2026-08-15 (local artifacts) |
+| 6 | Physical G7/G8, hosted release, legal review | HUMAN | not started (no hardware/authority) |
 
 ## Current gate state (verified 2026-08-14)
 
@@ -70,8 +69,8 @@ alone.
 | G2 iOS build seam | PASS — GAME_PLATFORM_IOS split, mobile-off options, iOS app target families 1+2, audit clean |
 | G3 iPhone Simulator | CORE PASS — install/PID, data-required flow, real UIDocumentPicker import, menu → Nubt briefing, macOS save loaded (VERSION 189), in-city tap. Remains: phone touch scale/keyboard/safe-area polish |
 | G4 iPhone lifecycle | CORE DONE — background → pause + lifecycle.svx autosave measured, survives relaunch. Remains: 20 cycles, UI load of lifecycle save, manual-save preservation, import-interrupt/low-storage, update survival |
-| G5 iPad + Pencil shell | IN PROGRESS — 0004 proven on iPad mini (Pencil row toggles); 0005/0006 proven on 13" (full-screen city + overlay Pause/Speed); 11" remains |
-| G6 subset / G9 | NOT STARTED |
+| G5 iPad + Pencil shell | CORE PASS — mini/11"/13" proven |
+| G6 subset / G9 | CORE DONE (developer-preview subset + local artifacts) |
 | G7/G8 physical | HUMAN GATE — no iPhone/iPad/Pencil attached |
 
 ## Environment facts (verify live, don't trust stale values)

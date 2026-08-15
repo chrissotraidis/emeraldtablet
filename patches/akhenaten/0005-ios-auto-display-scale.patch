@@ -1,0 +1,34 @@
+diff --git a/src/platform/platform_ios.cpp b/src/platform/platform_ios.cpp
+index ad363751b..781c3ac90 100644
+--- a/src/platform/platform_ios.cpp
++++ b/src/platform/platform_ios.cpp
+@@ -2,6 +2,7 @@
+ 
+ #if defined(GAME_PLATFORM_IOS)
+ 
++#include "platform/arguments.h"
+ #include "core/bstring.h"
+ #include "core/log.h"
+ #include "game/game.h"
+@@ -48,6 +49,21 @@ void platform_post_hint_init() {
+     // ImGui and the SDL UI are mouse-event driven; synthesize mouse events
+     // from touches so the touch UI works on iPhone/iPad.
+     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
++
++    // Fill the screen with the engine's fixed 1024x768 logical view by
++    // defaulting the display scale to the device's landscape width ratio
++    // (CaesarPad-style per-device default). Users can still override the
++    // scale in the engine options; this only sets the default when the user
++    // has not chosen one yet.
++    if (!g_args.has_arg("display_scale_percentage")) {
++        SDL_Rect bounds;
++        if (SDL_GetDisplayUsableBounds(0, &bounds) == 0 && bounds.w > 0) {
++            int default_scale = (bounds.w * 100 + 512) / 1024; // round(landscape_w / 10.24)
++            default_scale = std::clamp(default_scale, 100, 500);
++            g_args.set_display_scale_percentage(default_scale);
++            logs::info("iOS auto display scale: %i%% (landscape width %d)", default_scale, bounds.w);
++        }
++    }
+ }
+ 
+ void platform_setup_begin() {

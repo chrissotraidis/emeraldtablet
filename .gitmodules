@@ -1,0 +1,3 @@
+[submodule "engines/akhenaten"]
+	path = engines/akhenaten
+	url = https://github.com/dalerank/Akhenaten.git

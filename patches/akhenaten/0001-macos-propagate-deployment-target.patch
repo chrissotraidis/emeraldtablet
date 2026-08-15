@@ -1,0 +1,137 @@
+From: Emerald Tablet <emeraldtablet@local>
+Subject: [PATCH] macOS: propagate architecture and deployment target into dependency helpers
+Purpose: Make SDL2, SDL2_mixer, zlib, FreeType, and HarfBuzz inherit CMAKE_OSX_DEPLOYMENT_TARGET and CMAKE_OSX_ARCHITECTURES.
+Affected platforms: macOS (and later iOS, once those helpers are reused)
+Upstream status: Suitable to upstream. The current CMake list is passed through one -D flag and splits, so helpers never see the deployment target.
+Tests: scripts/audit-macos-app.sh and tests/packaging/test_macos_self_contained.sh fail before this patch when dependency objects have minos 26.0.
+Reason: Required for a self-contained Apple product. The unpatched G1 build linked objects built for macOS 26.0 against a 11.7 executable.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ec7e7f3d8..7c6d3c111 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -44,14 +44,9 @@ else()
+     set(PLATFORM_ANDROID FALSE)
+ endif()
+ 
+-# Prepare additional CMake args for macOS architecture settings
++# APPLE and the resolved SDK are not available until project() runs.
++# Dependency -P helpers are filled in after that.
+ set(BUILD_ADDITIONAL_CMAKE_ARGS "")
+-if(APPLE AND DEFINED CMAKE_OSX_ARCHITECTURES)
+-    list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
+-endif()
+-if(APPLE AND DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+-    list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET})
+-endif()
+ 
+ #
+ # Akhenaten
+@@ -67,6 +62,22 @@ set(GAME_PROCESSOR_ARCH "x64")
+ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+ include("${CMAKE_MODULE_PATH}/CMakeRC.cmake")
+ 
++if(APPLE)
++    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
++        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
++    endif()
++    if(CMAKE_OSX_ARCHITECTURES)
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
++    endif()
++    list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
++    if(CMAKE_OSX_SYSROOT)
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}")
++    endif()
++    # cmake -P helpers take one -D string. A raw CMake list splits on ';' and
++    # drops CMAKE_OSX_DEPLOYMENT_TARGET as a stray cache entry on the helper.
++    string(REPLACE ";" "|" BUILD_ADDITIONAL_CMAKE_ARGS "${BUILD_ADDITIONAL_CMAKE_ARGS}")
++endif()
++
+ # Force using zlib from FetchContent, ignore system zlib
+ # This prevents find_package(ZLIB) from finding system libraries
+ set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
+diff --git a/cmake/BuildFreetype.cmake b/cmake/BuildFreetype.cmake
+index 85b43dc51..694b86847 100644
+--- a/cmake/BuildFreetype.cmake
++++ b/cmake/BuildFreetype.cmake
+@@ -2,6 +2,12 @@
+ # It should be called from the main CMakeLists.txt with: cmake -P BuildFreetype.cmake
+ # Required variables: FREETYPE_SOURCE_DIR, FREETYPE_BUILD_DIR, FREETYPE_INSTALL_DIR, ZLIB_ROOT, FREETYPE_ADDITIONAL_CMAKE_ARGS
+ 
++# Parent CMakeLists joins extra Apple args with "|" so a CMake list
++# survives one -DFREETYPE_ADDITIONAL_CMAKE_ARGS=... into this cmake -P helper.
++if(DEFINED FREETYPE_ADDITIONAL_CMAKE_ARGS)
++    string(REPLACE "|" ";" FREETYPE_ADDITIONAL_CMAKE_ARGS "${FREETYPE_ADDITIONAL_CMAKE_ARGS}")
++endif()
++
+ # Create build and install directories
+ file(MAKE_DIRECTORY ${FREETYPE_BUILD_DIR})
+ file(MAKE_DIRECTORY ${FREETYPE_INSTALL_DIR})
+diff --git a/cmake/BuildHarfbuzz.cmake b/cmake/BuildHarfbuzz.cmake
+index 02b00e66f..968e7f55d 100644
+--- a/cmake/BuildHarfbuzz.cmake
++++ b/cmake/BuildHarfbuzz.cmake
+@@ -2,6 +2,12 @@
+ # It should be called from the main CMakeLists.txt with: cmake -P BuildHarfbuzz.cmake
+ # Required variables: HARFBUZZ_SOURCE_DIR, HARFBUZZ_BUILD_DIR, HARFBUZZ_INSTALL_DIR, FREETYPE_ROOT, HARFBUZZ_ADDITIONAL_CMAKE_ARGS
+ 
++# Parent CMakeLists joins extra Apple args with "|" so a CMake list
++# survives one -DHARFBUZZ_ADDITIONAL_CMAKE_ARGS=... into this cmake -P helper.
++if(DEFINED HARFBUZZ_ADDITIONAL_CMAKE_ARGS)
++    string(REPLACE "|" ";" HARFBUZZ_ADDITIONAL_CMAKE_ARGS "${HARFBUZZ_ADDITIONAL_CMAKE_ARGS}")
++endif()
++
+ # Create build and install directories
+ file(MAKE_DIRECTORY ${HARFBUZZ_BUILD_DIR})
+ file(MAKE_DIRECTORY ${HARFBUZZ_INSTALL_DIR})
+diff --git a/cmake/BuildSDL2.cmake b/cmake/BuildSDL2.cmake
+index 92f6d686a..ce9f8eef5 100644
+--- a/cmake/BuildSDL2.cmake
++++ b/cmake/BuildSDL2.cmake
+@@ -2,6 +2,12 @@
+ # It should be called from the main CMakeLists.txt with: cmake -P BuildSDL2.cmake
+ # Required variables: SDL2_SOURCE_DIR, SDL2_BUILD_DIR, SDL2_INSTALL_DIR, SDL2_ADDITIONAL_CMAKE_ARGS, SDL2_IS_MSVC
+ 
++# Parent CMakeLists joins extra Apple args with "|" so a CMake list
++# survives one -DSDL2_ADDITIONAL_CMAKE_ARGS=... into this cmake -P helper.
++if(DEFINED SDL2_ADDITIONAL_CMAKE_ARGS)
++    string(REPLACE "|" ";" SDL2_ADDITIONAL_CMAKE_ARGS "${SDL2_ADDITIONAL_CMAKE_ARGS}")
++endif()
++
+ # Create build and install directories
+ file(MAKE_DIRECTORY ${SDL2_BUILD_DIR})
+ file(MAKE_DIRECTORY ${SDL2_INSTALL_DIR})
+diff --git a/cmake/BuildSDL2_mixer.cmake b/cmake/BuildSDL2_mixer.cmake
+index b94d8c992..14855a375 100644
+--- a/cmake/BuildSDL2_mixer.cmake
++++ b/cmake/BuildSDL2_mixer.cmake
+@@ -2,6 +2,12 @@
+ # It should be called from the main CMakeLists.txt with: cmake -P BuildSDL2_mixer.cmake
+ # Required variables: SDL2_MIXER_SOURCE_DIR, SDL2_MIXER_BUILD_DIR, SDL2_MIXER_INSTALL_DIR, SDL2_ROOT, SDL2_MIXER_ADDITIONAL_CMAKE_ARGS
+ 
++# Parent CMakeLists joins extra Apple args with "|" so a CMake list
++# survives one -DSDL2_MIXER_ADDITIONAL_CMAKE_ARGS=... into this cmake -P helper.
++if(DEFINED SDL2_MIXER_ADDITIONAL_CMAKE_ARGS)
++    string(REPLACE "|" ";" SDL2_MIXER_ADDITIONAL_CMAKE_ARGS "${SDL2_MIXER_ADDITIONAL_CMAKE_ARGS}")
++endif()
++
+ # Create build and install directories
+ file(MAKE_DIRECTORY ${SDL2_MIXER_BUILD_DIR})
+ file(MAKE_DIRECTORY ${SDL2_MIXER_INSTALL_DIR})
+diff --git a/cmake/BuildZlib.cmake b/cmake/BuildZlib.cmake
+index aeb83061d..119e80b75 100644
+--- a/cmake/BuildZlib.cmake
++++ b/cmake/BuildZlib.cmake
+@@ -2,6 +2,12 @@
+ # It should be called from the main CMakeLists.txt with: cmake -P BuildZlib.cmake
+ # Required variables: ZLIB_SOURCE_DIR, ZLIB_BUILD_DIR, ZLIB_INSTALL_DIR, ZLIB_ADDITIONAL_CMAKE_ARGS, ZLIB_PLATFORM_EXTRA_ARGS, ZLIB_BUILD_TYPE
+ 
++# Parent CMakeLists joins extra Apple args with "|" so a CMake list
++# survives one -DZLIB_ADDITIONAL_CMAKE_ARGS=... into this cmake -P helper.
++if(DEFINED ZLIB_ADDITIONAL_CMAKE_ARGS)
++    string(REPLACE "|" ";" ZLIB_ADDITIONAL_CMAKE_ARGS "${ZLIB_ADDITIONAL_CMAKE_ARGS}")
++endif()
++
+ # Create build and install directories
+ file(MAKE_DIRECTORY ${ZLIB_BUILD_DIR})
+ file(MAKE_DIRECTORY ${ZLIB_INSTALL_DIR})

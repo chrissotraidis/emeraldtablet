@@ -1,0 +1,236 @@
+diff --git a/cmake/BuildSDL2.cmake b/cmake/BuildSDL2.cmake
+index ce9f8eef5..57aac3f6f 100644
+--- a/cmake/BuildSDL2.cmake
++++ b/cmake/BuildSDL2.cmake
+@@ -13,6 +13,28 @@ file(MAKE_DIRECTORY ${SDL2_BUILD_DIR})
+ file(MAKE_DIRECTORY ${SDL2_INSTALL_DIR})
+ file(MAKE_DIRECTORY ${SDL2_INSTALL_DIR}/include)
+ 
++# iOS: give the Apple Pencil a distinct SDL touch device so the game can tell
++# stylus touches apart from fingers (G5 Pencil shell). SDL2 reports stylus
++# touches on the same direct-touch device as fingers, so tag them with a
++# dedicated touchId.
++if(SDL2_ADDITIONAL_CMAKE_ARGS MATCHES "iOS")
++    set(SDL2_UIKIT_VIEW "${SDL2_SOURCE_DIR}/src/video/uikit/SDL_uikitview.m")
++    file(READ "${SDL2_UIKIT_VIEW}" SDL2_UIKIT_VIEW_CONTENT)
++    string(REPLACE
++        "    SDL_TouchID directTouchId;\n    SDL_TouchID indirectTouchId;\n"
++        "    SDL_TouchID directTouchId;\n    SDL_TouchID indirectTouchId;\n    SDL_TouchID stylusTouchId;\n"
++        SDL2_UIKIT_VIEW_CONTENT "${SDL2_UIKIT_VIEW_CONTENT}")
++    string(REPLACE
++        "        directTouchId = 1;\n        indirectTouchId = 2;\n"
++        "        directTouchId = 1;\n        indirectTouchId = 2;\n        stylusTouchId = 0x4748454E43494C31ULL; /* 'PENCIL1' */\n"
++        SDL2_UIKIT_VIEW_CONTENT "${SDL2_UIKIT_VIEW_CONTENT}")
++    string(REPLACE
++        "SDL_TouchID touchId = [self touchIdForType:touchType];"
++        "SDL_TouchID touchId = (touch.type == UITouchTypeStylus) ? stylusTouchId : [self touchIdForType:touchType];"
++        SDL2_UIKIT_VIEW_CONTENT "${SDL2_UIKIT_VIEW_CONTENT}")
++    file(WRITE "${SDL2_UIKIT_VIEW}" "${SDL2_UIKIT_VIEW_CONTENT}")
++endif()
++
+ set(SDL2_CMAKE_ARGS
+     -DCMAKE_INSTALL_PREFIX=${SDL2_INSTALL_DIR}
+     -DSDL_SHARED=OFF
+@@ -236,4 +258,3 @@ else()
+ endif()
+ 
+ message(STATUS "SDL2 build completed successfully")
+-
+diff --git a/src/game/game_config.cpp b/src/game/game_config.cpp
+index 0d54ef9c2..97b009ac4 100644
+--- a/src/game/game_config.cpp
++++ b/src/game/game_config.cpp
+@@ -36,6 +36,7 @@ namespace game_features {
+     game_feature gameui_flat_buildings{ "gameui_flat_buildings", "#TR_CONFIG_FLAT_BUILDINGS", true };
+     game_feature gameui_show_construction_size{ "gameui_show_construction_size", "#TR_CONFIG_SHOW_CONSTRUCTION_SIZE", true };
+     game_feature gameui_show_current_select_tile{ "gameui_show_current_select_tile", "#TR_CONFIG_SHOW_CURRENT_SELECT_TILE", false };
++    game_feature gameui_pencil_mode{ "gameui_pencil_mode", "#TR_CONFIG_PENCIL_MODE", false };
+     game_feature gameui_show_input_near_cursor{ "gameui_show_input_near_cursor", "#TR_CONFIG_SHOW_INPUT_NEAR_CURSOR", false };
+     game_feature gameui_road_preview_in_map_order{ "gameui_road_preview_in_map_order", "#TR_CONFIG_ROAD_PREVIEW_IN_MAP_ORDER", true };
+     game_feature gameui_zoom{ "gameui_zoom", "#TR_CONFIG_ZOOM_STEPPED", true };
+diff --git a/src/game/game_config.h b/src/game/game_config.h
+index 317aadb04..9ab41ad3b 100644
+--- a/src/game/game_config.h
++++ b/src/game/game_config.h
+@@ -54,6 +54,7 @@ namespace game_features {
+     extern game_feature gameui_flat_buildings;
+     extern game_feature gameui_show_construction_size;
+     extern game_feature gameui_show_current_select_tile;
++    extern game_feature gameui_pencil_mode;
+     extern game_feature gameui_show_input_near_cursor;
+     extern game_feature gameui_road_preview_in_map_order;
+     extern game_feature gameui_zoom;
+diff --git a/src/input/mouse.cpp b/src/input/mouse.cpp
+index 31c3cbf9e..88020dd15 100644
+--- a/src/input/mouse.cpp
++++ b/src/input/mouse.cpp
+@@ -39,6 +39,13 @@ void mouse::set_from_touch(const touch_t* first, const touch_t* last) {
+         return;
+     }
+ 
++    // Pencil mode: fingers pan and zoom but never click; only the stylus
++    // produces taps/clicks (select, inspect, place).
++    if (touch_pencil_mode() && !first->is_stylus) {
++        reset_button_state();
++        return;
++    }
++
+     left.is_down = (!first->has_ended && first->in_use);
+     left.went_down = first->has_started;
+     left.went_up = first->has_ended;
+diff --git a/src/input/touch.cpp b/src/input/touch.cpp
+index 55d0b46d2..27c16b23f 100644
+--- a/src/input/touch.cpp
++++ b/src/input/touch.cpp
+@@ -17,6 +17,7 @@ struct touch_data_t {
+     int last_scroll_position;
+     int mode;
+     int touchpad_mode_click_type;
++    int pencil_mode;
+ };
+ 
+ touch_data_t g_touch_data;
+@@ -129,7 +130,7 @@ static int get_unused_touch_index(void) {
+     return i;
+ }
+ 
+-int touch_create(vec2i start_coords, time_millis start_time) {
++int touch_create(vec2i start_coords, time_millis start_time, int is_stylus) {
+     auto &data = g_touch_data;
+     int index = get_unused_touch_index();
+     if (index != MAX_ACTIVE_TOUCHES) {
+@@ -137,6 +138,7 @@ int touch_create(vec2i start_coords, time_millis start_time) {
+         t->in_use = 1;
+         t->has_started = 1;
+         t->has_ended = 0;
++        t->is_stylus = is_stylus;
+         t->start_point = start_coords;
+         t->current_point = start_coords;
+         t->previous_frame_point = start_coords;
+@@ -149,6 +151,14 @@ int touch_create(vec2i start_coords, time_millis start_time) {
+     return index;
+ }
+ 
++void touch_set_pencil_mode(int enabled) {
++    g_touch_data.pencil_mode = enabled ? 1 : 0;
++}
++
++int touch_pencil_mode(void) {
++    return g_touch_data.pencil_mode;
++}
++
+ int touch_in_use(int index) {
+     auto &data = g_touch_data;
+     return index >= 0 && index < MAX_ACTIVE_TOUCHES && data.finger[index].in_use;
+diff --git a/src/input/touch.h b/src/input/touch.h
+index 2d7f573da..484704935 100644
+--- a/src/input/touch.h
++++ b/src/input/touch.h
+@@ -17,6 +17,7 @@ struct touch_t {
+     int has_started;
+     int has_moved;
+     int has_ended;
++    int is_stylus;
+     vec2i start_point;
+     vec2i current_point;
+     vec2i previous_frame_point;
+@@ -39,12 +40,15 @@ int touch_get_scroll();
+ 
+ void reset_touches(int reset_old_touch);
+ 
+-int touch_create(vec2i start_coords, time_millis start_time);
++int touch_create(vec2i start_coords, time_millis start_time, int is_stylus = 0);
+ void touch_move(int index, vec2i current_coords, time_millis current_time);
+ void touch_end(int index, time_millis current_time);
+ int touch_in_use(int index);
+ 
+ int touch_to_mouse(void);
+ 
++void touch_set_pencil_mode(int enabled);
++int touch_pencil_mode(void);
++
+ void touch_set_mode(int mode);
+-void touch_cycle_mode();
+\ No newline at end of file
++void touch_cycle_mode();
+diff --git a/src/platform/platform_ios.cpp b/src/platform/platform_ios.cpp
+index 6546a3eb6..ad363751b 100644
+--- a/src/platform/platform_ios.cpp
++++ b/src/platform/platform_ios.cpp
+@@ -57,6 +57,8 @@ void platform_run_init_callback() {
+ }
+ 
+ void platform_run_per_frame_callback() {
++    // Keep the touch layer in sync with the configurable Pencil mode.
++    touch_set_pencil_mode(game_features::gameui_pencil_mode.to_bool() ? 1 : 0);
+ }
+ 
+ int platform_poll_event(CoreEvent* event) {
+diff --git a/src/platform/touch.cpp b/src/platform/touch.cpp
+index 7ad5427ac..f16368b3a 100644
+--- a/src/platform/touch.cpp
++++ b/src/platform/touch.cpp
+@@ -5,6 +5,9 @@
+ 
+ static SDL_FingerID touch_id[MAX_ACTIVE_TOUCHES];
+ 
++// Must match the SDL2 UIKit stylus touchId injected by BuildSDL2.cmake.
++static constexpr SDL_TouchID STYLUS_TOUCH_ID = 0x4748454E43494C31ULL;
++
+ #ifdef __APPLE__
+ static SDL_TouchID trackpad_id;
+ #endif
+@@ -37,7 +40,8 @@ void platform_touch_start(SDL_TouchFingerEvent* event) {
+     if (event->touchId == 1)
+         return;
+ #endif
+-    int index = touch_create(get_touch_coordinates(event->x, event->y), event->timestamp);
++    int is_stylus = (event->touchId == STYLUS_TOUCH_ID) ? 1 : 0;
++    int index = touch_create(get_touch_coordinates(event->x, event->y), event->timestamp, is_stylus);
+     if (index != MAX_ACTIVE_TOUCHES)
+         touch_id[index] = event->fingerId;
+ }
+diff --git a/src/scripts/localization_en.js b/src/scripts/localization_en.js
+index 06450516f..58826365b 100644
+--- a/src/scripts/localization_en.js
++++ b/src/scripts/localization_en.js
+@@ -208,6 +208,9 @@ localization_en = [
+   {key:"#TR_CONFIG_FLOODPLAIN_RANDOM_GROW", text:"Floodplain random grow"}
+   {key:"#TR_CONFIG_DRAW_FPS", text:"Draw FPS"}
+   {key:"#TR_CONFIG_SHOW_CURRENT_SELECT_TILE", text:"Show tile under mouse cursor on map"}
++  ,{key:"#TR_CONFIG_PENCIL_MODE", text:"Apple Pencil mode: Pencil clicks, fingers pan/zoom"}
++  ,{key:"#top_menu_pencil_mode_on", text:"Pencil mode: ON"}
++  ,{key:"#top_menu_pencil_mode_off", text:"Pencil mode: OFF"}
+   {key:"#TR_CONFIG_SHOW_INPUT_NEAR_CURSOR", text:"Show pressed keys and mouse buttons near cursor"}
+   {key:"#TR_CONFIG_ROAD_PREVIEW_IN_MAP_ORDER", text:"Draw road construction preview in map render order"}
+   {key:"#TR_CONFIG_HIGHLIGHT_TOP_MENU_HOVER", text:"Highlight Top Menu Items"}
+diff --git a/src/scripts/ui_top_menu_actions.js b/src/scripts/ui_top_menu_actions.js
+index 797b63a9e..e6de195e4 100644
+--- a/src/scripts/ui_top_menu_actions.js
++++ b/src/scripts/ui_top_menu_actions.js
+@@ -55,6 +55,13 @@ function top_menu_pyramid_speedup_text(p1, p2) {
+ }
+ function top_menu_pyramid_speedup_toggle(p1, p2) { game_features.gameopt_pyramid_speedup = !game_features.gameopt_pyramid_speedup }
+ 
++function top_menu_pencil_mode_text(p1, p2) {
++	return __loc(game_features.gameui_pencil_mode ? "#top_menu_pencil_mode_on" : "#top_menu_pencil_mode_off")
++}
++function top_menu_pencil_mode_toggle(p1, p2) {
++	game_features.gameui_pencil_mode = !game_features.gameui_pencil_mode
++}
++
+ function top_menu_open_advisor(advisor, p2) {
+ 	top_menu_dismiss()
+ 	window_advisors_show_advisor(advisor)
+diff --git a/src/scripts/ui_top_menu_widget.js b/src/scripts/ui_top_menu_widget.js
+index 1267c4c24..b13794cd0 100644
+--- a/src/scripts/ui_top_menu_widget.js
++++ b/src/scripts/ui_top_menu_widget.js
+@@ -235,6 +235,7 @@ top_menu_widget {
+ 				{ id: "sound_options", text: "#top_menu_sound_settings", onclick: top_menu_show_window_by_id("sound_options_window") }
+ 				{ id: "speed_options", text: "#top_menu_speed_settings", onclick: top_menu_show_window_by_id("speed_options_window") }
+ 				{ id: "pyramid_speedup", textfn: top_menu_pyramid_speedup_text, onclick: top_menu_pyramid_speedup_toggle }
++				{ id: "pencil_mode", textfn: top_menu_pencil_mode_text, onclick: top_menu_pencil_mode_toggle }
+ 				{ id: "difficulty_options", text: "#top_menu_difficulty", onclick: top_menu_show_window_by_id("difficulty_options_window") }
+ 				{ id: "popup_messages", text: "#top_menu_popup_messages", onclick: top_menu_show_window_by_id("popup_messages_window") }
+ 				{ id: "cities_options", textfn: top_menu_cities_old_text, onclick: top_menu_cities_old_toggle }

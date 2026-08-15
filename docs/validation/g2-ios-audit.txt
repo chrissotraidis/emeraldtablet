@@ -1,0 +1,87 @@
+== Bundle ==
+total 48680
+drwxr-xr-x@ 6 chrissotraidis  staff       192 Aug 14 04:05 .
+drwxr-xr-x@ 5 chrissotraidis  staff       160 Aug 14 04:00 ..
+drwxr-xr-x@ 8 chrissotraidis  staff       256 Aug 14 04:05 Data
+-rw-r--r--@ 1 chrissotraidis  staff      1179 Aug 14 02:56 Info.plist
+-rw-r--r--@ 1 chrissotraidis  staff         8 Aug 14 02:56 PkgInfo
+-rwxr-xr-x@ 1 chrissotraidis  staff  24913320 Aug 14 04:05 akhenaten
+== Architecture ==
+Non-fat file: build/ios-sim/RelWithDebInfo-iphonesimulator/akhenaten.app/akhenaten is architecture: arm64
+== Deployment target ==
+ platform IOSSIMULATOR
+    minos 15.0
+      sdk 26.5
+== Frameworks / linkage (must be iOS-valid only) ==
+build/ios-sim/RelWithDebInfo-iphonesimulator/akhenaten.app/akhenaten:
+	/System/Library/Frameworks/UIKit.framework/UIKit (compatibility version 1.0.0, current version 9126.5.5)
+	/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics (compatibility version 64.0.0, current version 1965.5.1)
+	/System/Library/Frameworks/QuartzCore.framework/QuartzCore (compatibility version 1.2.0, current version 1195.14.4)
+	/System/Library/Frameworks/Metal.framework/Metal (compatibility version 1.0.0, current version 373.2.0)
+	/System/Library/Frameworks/MetalKit.framework/MetalKit (compatibility version 1.0.0, current version 173.7.0)
+	/System/Library/Frameworks/CoreVideo.framework/CoreVideo (compatibility version 1.2.0, current version 734.4.0)
+	/System/Library/Frameworks/CoreAudio.framework/CoreAudio (compatibility version 1.0.0, current version 1.0.0)
+	/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox (compatibility version 1.0.0, current version 1000.0.0)
+	/System/Library/Frameworks/AVFoundation.framework/AVFoundation (compatibility version 1.0.0, current version 2.0.0)
+	/System/Library/Frameworks/CoreMotion.framework/CoreMotion (compatibility version 1.0.0, current version 3075.0.8)
+	/System/Library/Frameworks/CoreBluetooth.framework/CoreBluetooth (compatibility version 1.0.0, current version 195.7.1)
+	/System/Library/Frameworks/OpenGLES.framework/OpenGLES (compatibility version 1.0.0, current version 1.0.0)
+	/System/Library/Frameworks/GameController.framework/GameController (compatibility version 1.0.0, current version 13.5.1)
+	/System/Library/Frameworks/CoreHaptics.framework/CoreHaptics (compatibility version 1.0.0, current version 1.0.0)
+	/System/Library/Frameworks/Foundation.framework/Foundation (compatibility version 300.0.0, current version 5026.5.4)
+	/usr/lib/libz.1.dylib (compatibility version 1.0.0, current version 1.2.12)
+	/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)
+	/System/Library/Frameworks/AVFAudio.framework/AVFAudio (compatibility version 1.0.0, current version 1.0.0)
+	/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation (compatibility version 150.0.0, current version 5026.5.4)
+	/usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)
+== Info.plist ==
+{
+  "BuildMachineOSBuild" => "25F84"
+  "CFBundleDevelopmentRegion" => "en"
+  "CFBundleDisplayName" => "Akhenaten"
+  "CFBundleExecutable" => "akhenaten"
+  "CFBundleIdentifier" => "mt.dalerank.akhenaten"
+  "CFBundleInfoDictionaryVersion" => "6.0"
+  "CFBundleName" => "akhenaten"
+  "CFBundlePackageType" => "APPL"
+  "CFBundleShortVersionString" => "0.2.7"
+  "CFBundleSupportedPlatforms" => [
+    0 => "iPhoneSimulator"
+  ]
+  "CFBundleVersion" => "0.2.7 12614"
+  "DTCompiler" => "com.apple.compilers.llvm.clang.1_0"
+  "DTPlatformBuild" => "23F81a"
+  "DTPlatformName" => "iphonesimulator"
+  "DTPlatformVersion" => "26.5"
+  "DTSDKBuild" => "23F81a"
+  "DTSDKName" => "iphonesimulator26.5"
+  "DTXcode" => "2660"
+  "DTXcodeBuild" => "17F113"
+  "LSRequiresIPhoneOS" => true
+  "MinimumOSVersion" => "15.0"
+  "UIDeviceFamily" => [
+    0 => 1
+    1 => 2
+  ]
+  "UIRequiresFullScreen" => true
+  "UIStatusBarHidden" => true
+  "UIStatusBarStyle" => "UIStatusBarStyleDarkContent"
+  "UISupportedInterfaceOrientations" => [
+    0 => "UIInterfaceOrientationLandscapeLeft"
+    1 => "UIInterfaceOrientationLandscapeRight"
+  ]
+  "UISupportedInterfaceOrientations~ipad" => [
+    0 => "UIInterfaceOrientationLandscapeLeft"
+    1 => "UIInterfaceOrientationLandscapeRight"
+    2 => "UIInterfaceOrientationPortrait"
+    3 => "UIInterfaceOrientationPortraitUpsideDown"
+== No desktop-only artifacts ==
+== Engine data in bundle ==
+default.map
+maps
+neucha.ttf
+pharaoh_custom_pack.sgx
+pharaoh_fonts_pack.sgx
+pharaoh_houses_pack.sgx
+AUDIT OK

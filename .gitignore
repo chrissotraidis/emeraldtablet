@@ -1,0 +1,73 @@
+# Local-only reference checkouts and user-owned Pharaoh + Cleopatra data.
+/ref/
+ref/
+
+# Engine build trees, FetchContent caches, and generated Xcode products.
+/build/
+/build-*/
+/artifacts/
+/DerivedData/
+engines/akhenaten/build/
+engines/akhenaten/build-*/
+**/.cache/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/compile_commands.json
+
+# Generated apps, archives, packages, and disk images.
+*.app/
+*.dSYM/
+*.xcarchive
+*.ipa
+*.dmg
+*.pkg
+*.zip
+
+# Apple signing material and private keys.
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.p8
+*.pem
+*.key
+*.cer
+*.certSigningRequest
+
+# Original Pharaoh / Cleopatra markers that must never be committed.
+campaign.txt
+Campaign.txt
+CAMPAIGN.TXT
+Pharaoh.exe
+*.sg2
+*.sg3
+*.555
+*.sav
+*.svx
+*.bik
+*.smk
+
+# Local saves, logs, screenshots, and private evidence captures.
+*.log
+akhenaten-log.txt
+imgui.ini
+Save/
+saves/
+docs/validation/**/*.png
+docs/validation/**/*.jpg
+docs/validation/**/*.jpeg
+docs/evidence/**/*.png
+docs/evidence/**/*.jpg
+artifacts/private/
+
+# macOS / Xcode / editor noise.
+.DS_Store
+.AppleDouble
+.LSOverride
+xcuserdata/
+*.xcuserstate
+*.swp
+*.swo
+.idea/
+.vscode/
+.cursor/

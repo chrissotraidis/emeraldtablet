@@ -1,0 +1,1305 @@
+From: Emerald Tablet <emeraldtablet@local>
+Subject: [PATCH] iOS: platform split (GAME_PLATFORM_IOS), mobile options, iOS app target
+Purpose: Split generic Apple handling into GAME_PLATFORM_IOS (iPhone/iPad) vs
+  GAME_PLATFORM_MACOSX, with optional shared GAME_PLATFORM_APPLE; add a minimal
+  iOS platform backend, an iOS app target for device families 1 and 2, and turn
+  off desktop-only components (updater, innoextract, curl, cpptrace, Tracy,
+  video recording) for the mobile MVP. iOS builds no longer compile or link
+  Cocoa/Carbon/ForceFeedback, desktop launch scripts, shell-based URL opening,
+  passwd/home-directory lookup, or installer-extraction helpers.
+Affected platforms: iOS (iPhone/iPad), macOS behavior unchanged.
+Upstream status: Suitable to upstream after review. The detection order
+  (iOS before generic APPLE) and per-platform options are the documented G2
+  seam from the Apple implementation plan.
+Tests: scripts/build-ios-sim.sh (wrapper) configures and builds the pinned
+  engine for the iPhone Simulator SDK; scripts/audit-ios-app.sh checks
+  architecture, SDK, deployment target, and frameworks. macOS G1 build must
+  still pass with this patch applied (regression).
+Reason: The upstream CMake treats every Apple target as macOS and links
+  desktop frameworks; the engine cannot otherwise build for the iOS gate.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index adb197a5e..a523cdc29 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -5,11 +5,15 @@ include(ExternalProject)
+ 
+ set(CMAKE_BUILD_PLATFORM "default" CACHE STRING "Platform to cross-compile for. Options: android default")
+ 
+-option(OPTION_ENABLE_TRACY "Enable Tracy profiler support" ON)
++if(PLATFORM_IOS)
++    option(OPTION_ENABLE_TRACY "Enable Tracy profiler support" OFF)
++else()
++    option(OPTION_ENABLE_TRACY "Enable Tracy profiler support" ON)
++endif()
+ option(OPTION_STEAMDECK "Force Steam Deck platform defaults (GAME_PLATFORM_STEAMDECK)" OFF)
+ # Download prebuilt innoextract host tool (not linked into the game).
+ # Desktop platforms that can spawn helpers and unpack Windows/GOG Inno Setup .exe files.
+-if((WIN32 OR UNIX) AND NOT ANDROID AND NOT EMSCRIPTEN)
++if((WIN32 OR UNIX) AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT PLATFORM_IOS)
+     option(OPTION_ENABLE_INNOEXTRACT "Download innoextract helper for GOG/Inno Setup installers" ON)
+ else()
+     option(OPTION_ENABLE_INNOEXTRACT "Download innoextract helper for GOG/Inno Setup installers" OFF)
+@@ -30,7 +34,7 @@ else()
+     set(WIN_EMSCRIPTEN FALSE)
+ endif()
+ 
+-if((WIN32 OR UNIX) AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT WIN_EMSCRIPTEN)
++if((WIN32 OR UNIX) AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT WIN_EMSCRIPTEN AND NOT PLATFORM_IOS)
+     option(OPTION_ENABLE_VIDEO_RECORDING "Build OpenH264 screen capture to MP4" ON)
+ else()
+     option(OPTION_ENABLE_VIDEO_RECORDING "Build OpenH264 screen capture to MP4" OFF)
+@@ -56,6 +60,23 @@ set(GAME akhenaten)
+ project(${GAME} C CXX)
+ message("C++ compiler is ${CMAKE_CXX_COMPILER_ID}" )
+ 
++# iOS detection. CMake's iOS toolchains set IOS; the sysroot is the fallback
++# when a generic Apple SDK is selected (e.g. -DCMAKE_OSX_SYSROOT=iphonesimulator).
++set(PLATFORM_IOS FALSE)
++if(IOS)
++    set(PLATFORM_IOS TRUE)
++elseif(APPLE AND CMAKE_OSX_SYSROOT MATCHES "iphoneos|iphonesimulator")
++    set(PLATFORM_IOS TRUE)
++endif()
++message(STATUS "PLATFORM_IOS: ${PLATFORM_IOS}")
++
++if(PLATFORM_IOS)
++    # Mobile MVP: no profiler capture, no helper binaries, no screen capture.
++    set(OPTION_ENABLE_TRACY OFF CACHE BOOL "Enable Tracy profiler support" FORCE)
++    set(OPTION_ENABLE_INNOEXTRACT OFF CACHE BOOL "Download innoextract helper for GOG/Inno Setup installers" FORCE)
++    set(OPTION_ENABLE_VIDEO_RECORDING OFF CACHE BOOL "Build OpenH264 screen capture to MP4" FORCE)
++endif()
++
+ set(GAME_ARCH_64 TRUE)
+ set(GAME_PROCESSOR_ARCH "x64")
+ 
+@@ -64,7 +85,11 @@ include("${CMAKE_MODULE_PATH}/CMakeRC.cmake")
+ 
+ if(APPLE)
+     if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+-        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
++        if(PLATFORM_IOS)
++            set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum iOS deployment version")
++        else()
++            set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
++        endif()
+     endif()
+     if(CMAKE_OSX_ARCHITECTURES)
+         list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
+@@ -73,6 +98,22 @@ if(APPLE)
+     if(CMAKE_OSX_SYSROOT)
+         list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}")
+     endif()
++    list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
++    if(PLATFORM_IOS)
++        # Dependency -P helpers configure their own builds; they must target the
++        # same iOS SDK/arch/deployment as the game. The helpers use the default
++        # single-config generator (they are written for it), which CMake 4.x
++        # supports for iOS directly. SDL2 needs IOS=TRUE and its Cocoa driver
++        # disabled so the UIKit video driver is selected.
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_SYSTEM_NAME=iOS")
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DIOS=TRUE")
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DSDL_COCOA=OFF")
++        # CMake restricts find_* to the SDK root for cross builds; local
++        # dependency prefixes (freetype/harfbuzz/SDL2) must stay reachable.
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH")
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH")
++        list(APPEND BUILD_ADDITIONAL_CMAKE_ARGS "-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH")
++    endif()
+     # cmake -P helpers take one -D string. A raw CMake list splits on ';' and
+     # drops CMAKE_OSX_DEPLOYMENT_TARGET as a stray cache entry on the helper.
+     string(REPLACE ";" "|" BUILD_ADDITIONAL_CMAKE_ARGS "${BUILD_ADDITIONAL_CMAKE_ARGS}")
+@@ -112,7 +153,7 @@ set(PROJECT_VERSION "${GAME_VERSION_MAJOR}.${GAME_VERSION_MINOR}.${GAME_VERSION_
+ # CppTrace
+ #
+ 
+-if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Debug")
++if(NOT PLATFORM_IOS AND (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Debug"))
+     if (APPLE AND CMAKE_BUILD_TYPE STREQUAL "Debug") # Get meaningful trace on memory access errors etc.
+         add_compile_options(-fsanitize=address)
+         add_link_options(-fsanitize=address)
+@@ -221,7 +262,7 @@ elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+     set(MACOS_X64_BUILD ON)
+ endif()
+ 
+-if(NOT WIN_EMSCRIPTEN AND NOT MACOS_X64_BUILD)
++if(NOT WIN_EMSCRIPTEN AND NOT MACOS_X64_BUILD AND NOT PLATFORM_IOS)
+     set(LOCAL_DEPS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/_deps")
+     if (EXISTS "${LOCAL_DEPS_ROOT}/curl-src/CMakeLists.txt")
+         set(FETCHCONTENT_SOURCE_DIR_CURL "${LOCAL_DEPS_ROOT}/curl-src")
+@@ -745,6 +786,10 @@ else()
+ endif()
+ 
+ file(GLOB PLATFORM_FILES ${PROJECT_SOURCE_DIR}/src/platform/*.cpp)
++if(PLATFORM_IOS)
++    # Native iOS glue: UIDocumentPicker-based game-data importer (ObjC++).
++    list(APPEND PLATFORM_FILES ${PROJECT_SOURCE_DIR}/src/platform/platform_ios_picker.mm)
++endif()
+ file(GLOB CONFIG_FILES ${PROJECT_SOURCE_DIR}/src/config/*.cpp)
+ file(GLOB CONTENT_FILES ${PROJECT_SOURCE_DIR}/src/content/*.cpp)
+ file(GLOB CORE_FILES ${PROJECT_SOURCE_DIR}/src/core/*.cpp)
+@@ -923,7 +968,7 @@ if(MSVC)
+ endif()
+ 
+ set(MACOSX_FILES "")
+-if(APPLE)
++if(APPLE AND NOT PLATFORM_IOS)
+     set(MACOSX_FILES ${PROJECT_SOURCE_DIR}/res/akhenaten.icns)
+ endif()
+ 
+@@ -1014,7 +1059,7 @@ add_executable(${GAME} ${SOURCE_FILES})
+ 
+ # Standalone in-place update helper (desktop only). Game downloads/extracts, then
+ # launches this binary and exits so files can be overwritten.
+-if(NOT PLATFORM_ANDROID AND NOT WIN_EMSCRIPTEN AND NOT EMSCRIPTEN)
++if(NOT PLATFORM_ANDROID AND NOT WIN_EMSCRIPTEN AND NOT EMSCRIPTEN AND NOT PLATFORM_IOS)
+     add_executable(akhenaten-updater "${PROJECT_SOURCE_DIR}/tools/akhenaten-updater/main.cpp")
+     set_target_properties(akhenaten-updater PROPERTIES
+         CXX_STANDARD 17
+@@ -1058,7 +1103,7 @@ if (MSVC)
+     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /ignore:4098")
+ endif()
+ 
+-if(APPLE)
++if(APPLE AND NOT PLATFORM_IOS)
+     add_custom_command(OUTPUT ${PROJECT_SOURCE_DIR}/res/akhenaten.icns
+         COMMAND mkdir -p akhenaten.iconset
+         COMMAND sips -z 16 16    akhenaten_72.png --out akhenaten.iconset/icon_16x16.png
+@@ -1121,6 +1166,26 @@ if(APPLE)
+             ${codesignCommandWithEntitlements} \"\${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app/Contents/MacOS/${PROJECT_NAME}\"
+         )
+     ")
++elseif(PLATFORM_IOS)
++    # iOS application target: iPhone and iPad (device families 1 and 2), built
++    # against the same SDK/arch/deployment target as the dependencies above.
++    if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
++        set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum iOS deployment version")
++    endif()
++    set(MACOSX_BUNDLE_GUI_IDENTIFIER "mt.dalerank.akhenaten")
++    set(MACOSX_BUNDLE_BUNDLE_NAME ${PROJECT_NAME})
++    set(MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION} ${GAME_BUILD_NUMBER}")
++    set(MACOSX_BUNDLE_LONG_VERSION_STRING "${PROJECT_VERSION}.${GAME_BUILD_NUMBER}")
++    set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
++
++    set_target_properties(${GAME} PROPERTIES
++        MACOSX_BUNDLE TRUE
++        MACOSX_BUNDLE_INFO_PLIST "${PROJECT_SOURCE_DIR}/res/ios/Info.plist"
++        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
++        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${MACOSX_BUNDLE_GUI_IDENTIFIER}"
++        XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
++        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}"
++        IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+ endif()
+ 
+ if(NOT WIN_EMSCRIPTEN)
+@@ -1161,7 +1226,38 @@ endif()
+ # Apple specific
+ #
+ 
+-if(APPLE)
++# Engine data assets (UTF fonts / custom packs). Required for non-English
++# locales; used by the macOS bundle copy and the iOS in-bundle data deploy.
++set(AKHENATEN_DATA_FILES
++    "${CMAKE_SOURCE_DIR}/data/pharaoh_custom_pack.sgx"
++    "${CMAKE_SOURCE_DIR}/data/pharaoh_fonts_pack.sgx"
++    "${CMAKE_SOURCE_DIR}/data/pharaoh_houses_pack.sgx"
++    "${CMAKE_SOURCE_DIR}/data/neucha.ttf"
++    "${CMAKE_SOURCE_DIR}/data/default.map"
++)
++
++if(PLATFORM_IOS)
++    target_link_libraries(${GAME}
++        "-framework UIKit"
++        "-framework CoreGraphics"
++        "-framework QuartzCore"
++        "-framework Metal"
++        "-framework MetalKit"
++        "-framework CoreVideo"
++        "-framework CoreAudio"
++        "-framework AudioToolbox"
++        "-framework AVFoundation"
++        "-framework UniformTypeIdentifiers"
++        "-framework CoreMotion"
++        "-framework CoreBluetooth"
++        "-framework OpenGLES"
++        "-framework GameController"
++        "-framework CoreHaptics"
++        "-framework Foundation"
++        "${SDL2_INSTALL_DIR}/lib/libSDL2main.a"
++        z
++    )
++elseif(APPLE)
+     target_link_libraries(${GAME}
+         "-framework Cocoa"
+         "-framework Carbon"
+@@ -1179,7 +1275,7 @@ if(APPLE)
+     )
+ endif()
+ 
+-if(APPLE)
++if(APPLE AND NOT PLATFORM_IOS)
+     set(MACOS_DIR "${CMAKE_BINARY_DIR}/akhenaten.app/Contents/MacOS")
+     set(DATA_SRC_DIR "${CMAKE_SOURCE_DIR}/data")
+     set(LAUNCH_SCRIPT_SRC "${CMAKE_SOURCE_DIR}/res/macos/launch.sh")
+@@ -1216,7 +1312,7 @@ endif()
+ set(BUILD_NUMBER_SRC "${CMAKE_BINARY_DIR}/buildnumber.txt")
+ 
+ 
+-if(APPLE)
++if(APPLE AND NOT PLATFORM_IOS)
+     set(MACOS_DIR "${CMAKE_BINARY_DIR}/akhenaten.app/Contents/MacOS")
+     add_custom_command(TARGET ${GAME} POST_BUILD
+         COMMAND ${CMAKE_COMMAND} -E copy
+@@ -1412,15 +1508,6 @@ if(UNIX AND NOT APPLE)
+     install(FILES "res/metainfo.xml"      DESTINATION "share/metainfo" RENAME "com.github.dalerank.akhenaten.metainfo.xml")
+ endif()
+ 
+-# Engine data assets (UTF fonts / custom packs). Required for non-English locales.
+-set(AKHENATEN_DATA_FILES
+-    "${CMAKE_SOURCE_DIR}/data/pharaoh_custom_pack.sgx"
+-    "${CMAKE_SOURCE_DIR}/data/pharaoh_fonts_pack.sgx"
+-    "${CMAKE_SOURCE_DIR}/data/pharaoh_houses_pack.sgx"
+-    "${CMAKE_SOURCE_DIR}/data/neucha.ttf"
+-    "${CMAKE_SOURCE_DIR}/data/default.map"
+-)
+-
+ if (MSVC)
+     set(BINARY_FILES
+         "$<TARGET_FILE:${GAME}>"
+@@ -1447,7 +1534,7 @@ if (MSVC)
+ 
+     # VS debugger working directory is bin_x64 — keep Data/ there.
+     set(AKHENATEN_DATA_OUT_DIR "${GAME_WORKING_DIRECTORY}/Data")
+-elseif(NOT ANDROID AND NOT EMSCRIPTEN AND NOT WIN_EMSCRIPTEN)
++elseif(NOT ANDROID AND NOT EMSCRIPTEN AND NOT WIN_EMSCRIPTEN AND NOT PLATFORM_IOS)
+     # Linux/macOS/MinGW: place next to the binary. Use lowercase "data/" so
+     # vfs::path::resolve("./data/neucha.ttf") finds it on case-sensitive FS
+     # (localization.js references data/..., Windows "Data/" is case-insensitive).
+diff --git a/cmake/BuildSDL2_mixer.cmake b/cmake/BuildSDL2_mixer.cmake
+index 14855a375..ae56f8519 100644
+--- a/cmake/BuildSDL2_mixer.cmake
++++ b/cmake/BuildSDL2_mixer.cmake
+@@ -26,6 +26,13 @@ set(SDL2_MIXER_CMAKE_ARGS
+     -DSDL2_ROOT=${SDL2_ROOT}
+ )
+ 
++# The macOS native-MIDI backend is not portable to iOS (macOS-only AudioUnit
++# subtypes plus a direct AudioUnit output path). Timidity stays as the MIDI
++# backend; MIDI playback quality is tracked in the G6 compatibility matrix.
++if(SDL2_MIXER_ADDITIONAL_CMAKE_ARGS MATCHES "iOS")
++    list(APPEND SDL2_MIXER_CMAKE_ARGS "-DSDL2MIXER_MIDI_NATIVE=OFF")
++endif()
++
+ if(SDL2_MIXER_IS_MSVC)
+     # Multi-config generator (Visual Studio)
+     message(STATUS "Configuring SDL2_mixer...")
+@@ -239,5 +246,3 @@ else()
+ endif()
+ 
+ message(STATUS "SDL2_mixer build completed successfully")
+-
+-
+diff --git a/res/ios/Info.plist b/res/ios/Info.plist
+new file mode 100644
+index 000000000..aabf1c255
+--- /dev/null
++++ b/res/ios/Info.plist
+@@ -0,0 +1,44 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>CFBundleDevelopmentRegion</key>
++	<string>en</string>
++	<key>CFBundleDisplayName</key>
++	<string>Akhenaten</string>
++	<key>CFBundleExecutable</key>
++	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
++	<key>CFBundleIdentifier</key>
++	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
++	<key>CFBundleInfoDictionaryVersion</key>
++	<string>6.0</string>
++	<key>CFBundleName</key>
++	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
++	<key>CFBundlePackageType</key>
++	<string>APPL</string>
++	<key>CFBundleShortVersionString</key>
++	<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
++	<key>CFBundleVersion</key>
++	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
++	<key>LSRequiresIPhoneOS</key>
++	<true/>
++	<key>UIRequiresFullScreen</key>
++	<true/>
++	<key>UILaunchScreen</key>
++	<dict/>
++	<key>UIStatusBarHidden</key>
++	<true/>
++	<key>UIStatusBarStyle</key>
++	<string>UIStatusBarStyleDarkContent</string>
++	<key>UISupportedInterfaceOrientations</key>
++	<array>
++		<string>UIInterfaceOrientationLandscapeLeft</string>
++		<string>UIInterfaceOrientationLandscapeRight</string>
++	</array>
++	<key>UISupportedInterfaceOrientations~ipad</key>
++	<array>
++		<string>UIInterfaceOrientationLandscapeLeft</string>
++		<string>UIInterfaceOrientationLandscapeRight</string>
++	</array>
++</dict>
++</plist>
+diff --git a/src/dev/imguifiledialog.cpp b/src/dev/imguifiledialog.cpp
+index 1725ad20b..045d7f3f6 100644
+--- a/src/dev/imguifiledialog.cpp
++++ b/src/dev/imguifiledialog.cpp
+@@ -50,10 +50,17 @@ SOFTWARE.
+ #include <cstdio>
+ #include <cerrno>
+ 
++#if defined(__APPLE__)
++#include <TargetConditionals.h>
++#endif
++
+ // this option need c++17
+ #ifdef USE_STD_FILESYSTEM
+ #include <filesystem>
+ #include <exception>
++#elif defined(__APPLE__) && TARGET_OS_IOS
++// iOS: mkdir(1) via system() is unavailable; use std::filesystem instead.
++#include <filesystem>
+ #endif  // USE_STD_FILESYSTEM
+ 
+ #ifdef __EMSCRIPTEN__
+@@ -469,12 +476,23 @@ public:
+                 emscripten_run_script(str.c_str());
+                 res = true;
+ #elif defined(_IGFD_UNIX_)
++#if defined(__APPLE__)
++#include <TargetConditionals.h>
++#endif
++#if defined(__APPLE__) && TARGET_OS_IOS
++                std::error_code dir_ec;
++                std::filesystem::create_directories(vName, dir_ec);
++                if (!dir_ec) {
++                    res = true;
++                }
++#else
+                 char buffer[PATH_MAX] = {};
+                 snprintf(buffer, PATH_MAX, "mkdir -p \"%s\"", vName.c_str());
+                 const int dir_err = std::system(buffer);
+                 if (dir_err != -1) {
+                     res = true;
+                 }
++#endif
+ #endif  // _IGFD_WIN_
+                 if (!res) {
+                     std::cout << "Error creating directory " << vName << std::endl;
+@@ -631,12 +649,20 @@ public:
+                 emscripten_run_script(str.c_str());
+                 res = true;
+ #elif defined(_IGFD_UNIX_)
++#if defined(__APPLE__) && TARGET_OS_IOS
++                std::error_code dir_ec;
++                std::filesystem::create_directories(vName, dir_ec);
++                if (!dir_ec) {
++                    res = true;
++                }
++#else
+                 char buffer[PATH_MAX] = {};
+                 snprintf(buffer, PATH_MAX, "mkdir -p \"%s\"", vName.c_str());
+                 const int dir_err = std::system(buffer);
+                 if (dir_err != -1) {
+                     res = true;
+                 }
++#endif
+ #endif  // _IGFD_WIN_
+                 if (!res) {
+                     std::cout << "Error creating directory " << vName << std::endl;
+diff --git a/src/figure/figure_phrase.cpp b/src/figure/figure_phrase.cpp
+index 7dcd37a66..73677b81e 100644
+--- a/src/figure/figure_phrase.cpp
++++ b/src/figure/figure_phrase.cpp
+@@ -116,7 +116,12 @@ int figure::figure_play_phrase_file() {
+ }
+ 
+ void figure::figure_synthesize_phrase_file(const xstring& path)
+-{        
++{
++#if defined(GAME_PLATFORM_IOS)
++        // Desktop-only TTS helper (akh-tts/akhenaten-tts) is not shipped on iOS.
++        (void)path;
++        return;
++#else
+         logs::info("Run akhenaten-tts...");
+ 
+         xstring base_path = vfs::platform_file_manager_get_base_path();
+@@ -158,4 +163,5 @@ void figure::figure_synthesize_phrase_file(const xstring& path)
+         else {
+             logs::info("%s not found", tts_path.c_str());
+         }
+-}
+\ No newline at end of file
++#endif
++}
+diff --git a/src/input/keyboard.cpp b/src/input/keyboard.cpp
+index 604cab94e..5ba03f8aa 100644
+--- a/src/input/keyboard.cpp
++++ b/src/input/keyboard.cpp
+@@ -430,7 +430,7 @@ pcstr keyboard_t::key_modifier_name(int modifier) {
+     case KEY_MOD_SHIFT:
+         return "Shift";
+     case KEY_MOD_GUI:
+-#if defined(GAME_PLATFORM_MACOSX)
++#if defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS)
+         return "Cmd";
+ #else
+         return "Gui";
+diff --git a/src/js/js.cpp b/src/js/js.cpp
+index 4af94ea8d..ae6cd6f6a 100644
+--- a/src/js/js.cpp
++++ b/src/js/js.cpp
+@@ -45,7 +45,7 @@
+ #if defined(GAME_PLATFORM_LINUX)
+ #include <linux/limits.h>
+ #include <malloc.h>
+-#elif defined(GAME_PLATFORM_MACOSX)
++#elif defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS)
+ #include <sys/syslimits.h>
+ #include <malloc/malloc.h>
+ #elif defined(GAME_PLATFORM_ANDROID)
+@@ -86,7 +86,7 @@ namespace
+         }
+ #if defined(GAME_PLATFORM_WIN)
+         return _msize(ptr);
+-#elif defined(GAME_PLATFORM_MACOSX)
++#elif defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS)
+         return malloc_size(ptr);
+ #elif defined(GAME_PLATFORM_LINUX) || defined(GAME_PLATFORM_ANDROID)
+         return malloc_usable_size(ptr);
+@@ -1066,7 +1066,7 @@ vfs::path js_vm_get_absolute_path(vfs::path path) {
+ 
+ #if defined(GAME_PLATFORM_WIN)
+             pstr p = _fullpath(buffer, conpath, buffer.capacity);
+-#elif defined(GAME_PLATFORM_LINUX) || defined(GAME_PLATFORM_MACOSX)
++#elif defined(GAME_PLATFORM_LINUX) || defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS)
+             char resolved[PATH_MAX];
+             if (!realpath(conpath, resolved)) {
+                 continue;
+diff --git a/src/js/js_folder_notifier.cpp b/src/js/js_folder_notifier.cpp
+index 6e6c88dd6..010a0f9a2 100644
+--- a/src/js/js_folder_notifier.cpp
++++ b/src/js/js_folder_notifier.cpp
+@@ -47,7 +47,7 @@ notifier_data_t g_script_notifier;
+ // - js_folder_notifier_linux.cpp (Linux/Android)
+ // Fallback implementation for other platforms is below
+ 
+-#if !defined(GAME_PLATFORM_WIN) && !defined(GAME_PLATFORM_MACOSX) && !defined(__APPLE__) && !defined(__linux__) && !defined(__android__)
++#if !defined(GAME_PLATFORM_WIN) && !defined(GAME_PLATFORM_MACOSX) && !defined(__linux__) && !defined(__android__)
+ // Fallback implementation for other platforms
+ int js_vm_notifier_watch_directory(const char *lpDir)
+ {
+diff --git a/src/js/js_folder_notifier_macos.cpp b/src/js/js_folder_notifier_macos.cpp
+index e353d8b08..c66b84fce 100644
+--- a/src/js/js_folder_notifier_macos.cpp
++++ b/src/js/js_folder_notifier_macos.cpp
+@@ -1,6 +1,6 @@
+ #include "platform/platform.h"
+ 
+-#if defined(GAME_PLATFORM_MACOSX) || defined(__APPLE__)
++#if defined(GAME_PLATFORM_MACOSX)
+ 
+ #include "js_folder_notifier.h"
+ 
+diff --git a/src/platform/arguments.cpp b/src/platform/arguments.cpp
+index 8308e32be..e89bb6bd3 100644
+--- a/src/platform/arguments.cpp
++++ b/src/platform/arguments.cpp
+@@ -63,7 +63,7 @@ std::string get_configuration_path() {
+         logs::error("Failed to retrieve AppData path.");
+         result = CFG_FILE_NAME;
+     }
+-#elif defined(GAME_PLATFORM_MACOSX)
++#elif defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS)
+     char* tmp_path = SDL_GetPrefPath("", "Akhenaten");
+     if (tmp_path) {
+         result = std::string(tmp_path) + '/' + CFG_FILE_NAME;
+diff --git a/src/platform/innoextract_util.cpp b/src/platform/innoextract_util.cpp
+index b7d802f90..2897f884b 100644
+--- a/src/platform/innoextract_util.cpp
++++ b/src/platform/innoextract_util.cpp
+@@ -200,6 +200,7 @@ bool spawn_and_wait(const std::wstring &cmdline, pcstr tool_label, xstring *erro
+     return true;
+ }
+ #else
++#if !defined(GAME_PLATFORM_IOS)
+ bool spawn_argv_and_wait(char *const argv[], pcstr tool_label, xstring *error_out,
+   std::atomic<float> *progress = nullptr) {
+     int pipefd[2] = {-1, -1};
+@@ -294,6 +295,20 @@ bool spawn_argv_and_wait(char *const argv[], pcstr tool_label, xstring *error_ou
+     }
+     return true;
+ }
++#else
++// iOS: process spawning / installer extraction is not supported. The stub keeps
++// the public innoextract API linkable while the data-validation helpers below
++// (which are pure filesystem checks) remain fully compiled.
++bool spawn_argv_and_wait(char *const argv[], pcstr tool_label, xstring *error_out,
++  std::atomic<float> *progress = nullptr) {
++    (void)argv;
++    (void)progress;
++    if (error_out) {
++        *error_out = xstring((std::string("Installer extraction is not supported on iOS (") + tool_label + ")").c_str());
++    }
++    return false;
++}
++#endif
+ #endif
+ 
+ #if defined(_WIN32)
+@@ -574,6 +589,7 @@ xstring find_cab_file(const fs::path &root, pcstr filename, int depth = 0) {
+     return {};
+ }
+ 
++#if !defined(GAME_PLATFORM_IOS)
+ bool extract_with_innoextract(pcstr setup_exe, pcstr out_dir, xstring *error_out, std::atomic<float> *progress) {
+     xstring bin = find_named_tool("innoextract.exe", "innoextract", "innoextract");
+     if (bin.empty()) {
+@@ -758,6 +774,7 @@ bool extract_installer_impl(pcstr setup_exe, pcstr out_dir, xstring *error_out,
+     }
+     return false;
+ }
++#endif // !GAME_PLATFORM_IOS
+ 
+ } // namespace
+ 
+@@ -821,6 +838,76 @@ bool has_required_game_files(pcstr dir) {
+     return true;
+ }
+ 
++#if defined(GAME_PLATFORM_IOS)
++// iOS: installer-extraction helpers are not built for mobile. Data-validation
++// helpers above remain compiled so the engine's startup data check works.
++xstring find_binary() {
++    return {};
++}
++
++xstring default_extract_directory() {
++    return {};
++}
++
++bool extract_installer(pcstr setup_exe, pcstr out_dir, xstring *error_out) {
++    (void)setup_exe;
++    (void)out_dir;
++    if (error_out) {
++        *error_out = "Installer extraction is not supported on iOS";
++    }
++    return false;
++}
++
++xstring pharaoh_data_directory() {
++    return {};
++}
++
++xstring find_installer_exe(pcstr installer_dir) {
++    (void)installer_dir;
++    return {};
++}
++
++xstring installer_pending_bootstrap() {
++    return {};
++}
++
++xstring try_bootstrap_pharaoh_data(xstring *error_out) {
++    if (error_out) {
++        *error_out = "Installer bootstrap is not supported on iOS";
++    }
++    return {};
++}
++
++bool extract_job_start(pcstr setup_exe, pcstr out_dir, xstring *error_out) {
++    (void)setup_exe;
++    (void)out_dir;
++    if (error_out) {
++        *error_out = "Installer extraction is not supported on iOS";
++    }
++    return false;
++}
++
++bool extract_job_running() {
++    return false;
++}
++
++float extract_job_progress() {
++    return 0.f;
++}
++
++bool extract_job_take_result(xstring *error_out) {
++    if (error_out) {
++        *error_out = "Installer extraction is not supported on iOS";
++    }
++    return false;
++}
++
++xstring find_extracted_game_path(pcstr out_dir) {
++    (void)out_dir;
++    return {};
++}
++#else
++
+ xstring find_installer_exe(pcstr installer_dir) {
+     if (!installer_dir || !*installer_dir) {
+         return {};
+@@ -1107,4 +1194,6 @@ xstring find_extracted_game_path(pcstr out_dir) {
+     return found;
+ }
+ 
++#endif // !GAME_PLATFORM_IOS
++
+ } // namespace innoextract
+diff --git a/src/platform/options_window.cpp b/src/platform/options_window.cpp
+index 7187ce141..82f25a172 100644
+--- a/src/platform/options_window.cpp
++++ b/src/platform/options_window.cpp
+@@ -3,6 +3,7 @@
+ #include "platform/arguments.h"
+ #include "platform/innoextract_util.h"
+ #include "platform/platform.h"
++#include "platform/platform_ios_picker.h"
+ #include "platform/prefs.h"
+ #include "core/xvalue.h"
+ #include "platform/renderer.h"
+@@ -169,6 +170,12 @@ float parse_positive_float_env(pcstr name) {
+ float get_ui_scale_for_display(int display_index) {
+     float scale = 1.0f;
+ 
++#if defined(GAME_PLATFORM_IOS)
++    // On iPhone/iPad the config dialog must fit the device screen. SDL reports
++    // retina DPI (~3x), which would scale the layout off-screen; the phone
++    // screen is dense enough to read the base-size dialog directly.
++    return scale;
++#else
+     // ImGui helper: uses SDL DPI on most platforms, but always returns 1.0 on macOS.
+     const float imgui_scale = ImGui_ImplSDL2_GetContentScaleForDisplay(display_index);
+     if (imgui_scale > 0.0f && std::isfinite(imgui_scale)) {
+@@ -209,6 +216,7 @@ float get_ui_scale_for_display(int display_index) {
+     }
+ 
+     return std::clamp(scale, 1.0f, 3.0f);
++#endif
+ }
+ 
+ float refine_ui_scale_from_renderer(SDL_Window *window, SDL_Renderer *renderer, float current_scale) {
+@@ -473,14 +481,18 @@ void show_options_window(Arguments& args) {
+             }
+             ImGui::SameLine();
+             if (ImGui::Button("...")) {
++#if defined(GAME_PLATFORM_IOS)
++                ios_picker::start_folder_pick();
++#else
+                 IGFD::FileDialogConfig config;
+                 config.path = ".";
+                 config.countSelectionMax = 1;
+                 config.flags = ImGuiFileDialogFlags_Modal;
+                 ImGuiFileDialog::Instance()->OpenDialog("ChooseFolderDlgKey", "Choose Folder", nullptr, config);
++#endif
+             }
+ 
+-            if (!platform.is_android() && !platform.is_emscripten()) {
++            if (!platform.is_android() && !platform.is_emscripten() && !platform.is_ios()) {
+                 ImGui::SameLine();
+                 if (!installer_prompt_checked) {
+                     installer_prompt_checked = true;
+@@ -633,6 +645,33 @@ void show_options_window(Arguments& args) {
+             }
+ 
+             ImVec2 filedialog_size(window_size.x * 0.5f, window_size.y * 0.5f);
++#if defined(GAME_PLATFORM_IOS)
++            // iOS: native document-picker import with security-scoped access.
++            // Copy/validation runs off the main thread; the result is polled
++            // here each frame.
++            if (ios_picker::is_active()) {
++                ImGui::TextUnformatted("Importing game data…");
++            } else {
++                std::string picked_root;
++                std::string pick_error;
++                if (ios_picker::take_result(picked_root, pick_error)) {
++                    if (innoextract::has_pharaoh_data(picked_root.c_str())) {
++                        args.set_data_directory(picked_root.c_str());
++                        data_directory = args.get_data_directory().c_str();
++                        arguments::store(args);
++                        extract_status = "Game data imported.";
++                    } else {
++                        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Invalid game data",
++                          "The imported folder does not contain a Pharaoh install (campaign.txt missing).",
++                          platform_window);
++                    }
++                } else if (!pick_error.empty()) {
++                    extract_status = pick_error.c_str();
++                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Game data import",
++                      pick_error.c_str(), platform_window);
++                }
++            }
++#else
+             if (ImGuiFileDialog::Instance()->Display("ChooseFolderDlgKey", ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize, filedialog_size)) {
+                 ImGui::SetWindowFocus();
+                 if (ImGuiFileDialog::Instance()->IsOk()) {
+@@ -641,6 +680,7 @@ void show_options_window(Arguments& args) {
+                 }
+                 ImGuiFileDialog::Instance()->Close();
+             }
++#endif
+ 
+             const float bottom_bar_h = 36.0f * ui_scale;
+             const float render_section_h = window_size.y * 0.28f;
+diff --git a/src/platform/platform.h b/src/platform/platform.h
+index 22e7738c5..f02ac0df8 100644
+--- a/src/platform/platform.h
++++ b/src/platform/platform.h
+@@ -14,9 +14,18 @@ int platform_sdl_version_at_least(int major, int minor, int patch);
+ #define GAME_PLATFORM_WIN64
+ #define GAME_PLATFORM_NAME "win64"
+ #elif defined(__APPLE_CC__) || defined(__APPLE__) || defined(__APPLE_CPP__) || defined(__MACOS_CLASSIC__)
++#include <TargetConditionals.h>
++#if TARGET_OS_IOS || TARGET_OS_IPHONE
+ #define GAME_PLATFORM_UNIX
++#define GAME_PLATFORM_APPLE
++#define GAME_PLATFORM_IOS
++#define GAME_PLATFORM_NAME "ios"
++#else
++#define GAME_PLATFORM_UNIX
++#define GAME_PLATFORM_APPLE
+ #define GAME_PLATFORM_MACOSX
+ #define GAME_PLATFORM_NAME "macosx"
++#endif
+ #elif defined(__FreeBSD__) || defined(__OpenBSD__)
+ #define GAME_PLATFORM_UNIX
+ #define GAME_PLATFORM_XBSD
+@@ -139,6 +148,14 @@ struct platform_t {
+ #endif
+ 	}
+ 
++	inline constexpr bool is_ios() const {
++#ifdef GAME_PLATFORM_IOS
++		return true;
++#else
++		return false;
++#endif
++	}
++
+ 	inline constexpr bool is_switch() const {
+ #ifdef GAME_PLATFORM_SWITCH
+         return true;
+@@ -193,4 +210,4 @@ struct platform_t {
+ 	void hide_virtual_keyboard();
+ };
+ 
+-extern platform_t platform;
+\ No newline at end of file
++extern platform_t platform;
+diff --git a/src/platform/platform_hw_timers_unix.cpp b/src/platform/platform_hw_timers_unix.cpp
+index 0a13be217..52584c512 100644
+--- a/src/platform/platform_hw_timers_unix.cpp
++++ b/src/platform/platform_hw_timers_unix.cpp
+@@ -1,6 +1,6 @@
+ #include "platform.h"
+ 
+-#if defined(GAME_PLATFORM_ANDROID) || defined(GAME_PLATFORM_LINUX) || defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_WEB)
++#if defined(GAME_PLATFORM_ANDROID) || defined(GAME_PLATFORM_LINUX) || defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS) || defined(GAME_PLATFORM_WEB)
+ 
+ #include <ctime>
+ 
+@@ -36,4 +36,4 @@ uint64_t platform_t::get_qpf() {
+     return static_cast<uint64_t>(1e9) / (static_cast<uint64_t>(res.tv_sec) * 1e9 + res.tv_nsec);
+ }
+ 
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/src/platform/platform_ios.cpp b/src/platform/platform_ios.cpp
+new file mode 100644
+index 000000000..6546a3eb6
+--- /dev/null
++++ b/src/platform/platform_ios.cpp
+@@ -0,0 +1,125 @@
++#include "platform.h"
++
++#if defined(GAME_PLATFORM_IOS)
++
++#include "core/bstring.h"
++#include "core/log.h"
++#include "game/game.h"
++#include "game/game_config.h"
++#include "io/gamestate/boilerplate.h"
++#include "window/window_city.h"
++
++#include <SDL.h>
++
++#include "content/vfs.h"
++
++namespace {
++
++// G4 lifecycle: when the app moves to the background, pause the simulation
++// and write a dedicated lifecycle autosave so an active city can be resumed
++// after a foreground/terminate/relaunch cycle. Saves and configuration are
++// flushed; on foreground the sim stays paused until the player unpauses.
++void handle_ios_background() {
++    if (!city_has_loaded) {
++        return;
++    }
++    game.paused = true;
++    GamestateIO::write_savegame("lifecycle.svx");
++    game_features::save();
++}
++
++void handle_ios_foreground() {
++    // The simulation stays paused on return; audio/resources are revalidated
++    // by SDL's UIKit audio session handling on foreground.
++}
++
++} // namespace
++
++uint32_t platform_init_sdl_flags() {
++    return 0;
++}
++
++void platform_post_hint_init() {
++    // Landscape-first product view (the city and menus are wide layouts).
++    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
++    // A pure-SDL UIKit app owns the whole screen; keep the home indicator
++    // out of the way in the landscape view.
++    SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "1");
++    // ImGui and the SDL UI are mouse-event driven; synthesize mouse events
++    // from touches so the touch UI works on iPhone/iPad.
++    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
++}
++
++void platform_setup_begin() {
++}
++
++void platform_run_init_callback() {
++}
++
++void platform_run_per_frame_callback() {
++}
++
++int platform_poll_event(CoreEvent* event) {
++    int result = SDL_PollEvent(reinterpret_cast<SDL_Event*>(event));
++    if (result) {
++        const SDL_Event* sdl_event = reinterpret_cast<const SDL_Event*>(event);
++        if (sdl_event->type == SDL_APP_WILLENTERBACKGROUND) {
++            handle_ios_background();
++        } else if (sdl_event->type == SDL_APP_DIDENTERFOREGROUND) {
++            handle_ios_foreground();
++        }
++    }
++    return result;
++}
++
++pcstr platform_request_initial_data_directory() {
++    return nullptr;
++}
++
++void platform_append_startup_log(pcstr message) {
++}
++
++void platform_hide_startup_log() {
++}
++
++bool platform_run_main_loop(platform_pump_frame_cb pump_frame, platform_should_continue_cb should_continue) {
++    while (should_continue()) {
++        pump_frame();
++    }
++    return true;
++}
++
++void platform_resolve_user_directory(bstring512& dir) {
++    char* pref = SDL_GetPrefPath("", "Akhenaten");
++    if (pref) {
++        dir = pref;
++        SDL_free(pref);
++    } else {
++        logs::warn("platform::user_directory: SDL_GetPrefPath failed, using cwd");
++        dir = ".";
++    }
++}
++
++void platform_t::open_url(pcstr url, pcstr prefix) {
++    (void)prefix;
++    if (url && *url) {
++        SDL_OpenURL(url);
++    }
++}
++
++pcstr platform_t::get_steam_path() {
++    // No Steam installation on iOS.
++    return {};
++}
++
++void platform_show_virtual_keyboard(const uint8_t *text, int max_length) {
++    (void)text;
++    (void)max_length;
++    SDL_StartTextInput();
++}
++
++void platform_hide_virtual_keyboard(void) {
++    SDL_StopTextInput();
++}
++
++#endif
+diff --git a/src/platform/platform_ios_picker.h b/src/platform/platform_ios_picker.h
+new file mode 100644
+index 000000000..ef2cceadf
+--- /dev/null
++++ b/src/platform/platform_ios_picker.h
+@@ -0,0 +1,26 @@
++#pragma once
++
++#include "platform.h"
++
++#if defined(GAME_PLATFORM_IOS)
++
++#include <string>
++
++namespace ios_picker {
++
++// Present the iOS document picker (folder mode) so the user can supply their
++// own Pharaoh + Cleopatra game folder.
++bool start_folder_pick();
++
++// True while the picker or the import copy is running.
++bool is_active();
++
++// -1 unknown, 0..100 rough copy progress.
++int progress();
++
++// Consume a finished import: true + imported root, or false + error text.
++bool take_result(std::string &path_out, std::string &error_out);
++
++} // namespace ios_picker
++
++#endif // GAME_PLATFORM_IOS
+diff --git a/src/platform/platform_ios_picker.mm b/src/platform/platform_ios_picker.mm
+new file mode 100644
+index 000000000..0708abaf2
+--- /dev/null
++++ b/src/platform/platform_ios_picker.mm
+@@ -0,0 +1,292 @@
++#include "platform_ios_picker.h"
++
++#if defined(GAME_PLATFORM_IOS)
++
++#import <UIKit/UIKit.h>
++#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
++
++#include <SDL.h>
++#include <SDL_syswm.h>
++
++#include <atomic>
++#include <mutex>
++#include <string>
++
++namespace ios_picker {
++
++namespace {
++
++enum class State {
++    idle,
++    picking,
++    copying,
++    done,
++    failed,
++};
++
++struct PickerState {
++    std::atomic<State> state{State::idle};
++    std::mutex mutex;
++    std::string result_path;
++    std::string error;
++    std::atomic<int> last_progress{-1};
++};
++
++PickerState &picker() {
++    static PickerState state;
++    return state;
++}
++
++UIViewController *root_view_controller() {
++    SDL_Window *window = SDL_GetKeyboardFocus();
++    if (!window) {
++        return nullptr;
++    }
++    SDL_SysWMinfo info;
++    SDL_VERSION(&info.version);
++    if (!SDL_GetWindowWMInfo(window, &info)) {
++        return nullptr;
++    }
++    UIWindow *ui_window = (__bridge UIWindow *)info.info.uikit.window;
++    return ui_window.rootViewController;
++}
++
++std::string path_from_url(NSURL *url) {
++    const char *path = url.path.UTF8String;
++    return path ? std::string(path) : std::string();
++}
++
++// Find the Pharaoh game root: the picked folder itself, or the first subfolder
++// that contains campaign.txt (imports from a wrapper folder are common).
++std::string find_game_root(const std::string &dir) {
++    NSFileManager *fm = [NSFileManager defaultManager];
++    NSString *root = [NSString stringWithUTF8String:dir.c_str()];
++    if ([fm fileExistsAtPath:[root stringByAppendingPathComponent:@"campaign.txt"]]) {
++        return dir;
++    }
++    NSArray *entries = [fm contentsOfDirectoryAtPath:root error:nullptr];
++    for (NSString *entry in entries) {
++        NSString *candidate = [root stringByAppendingPathComponent:entry];
++        BOOL is_dir = NO;
++        if ([fm fileExistsAtPath:candidate isDirectory:&is_dir] && is_dir
++            && [fm fileExistsAtPath:[candidate stringByAppendingPathComponent:@"campaign.txt"]]) {
++            return std::string(candidate.UTF8String);
++        }
++    }
++    return {};
++}
++
++void copy_folder(NSString *source, NSString *dest) {
++    NSFileManager *fm = [NSFileManager defaultManager];
++    NSArray *entries = [fm contentsOfDirectoryAtPath:source error:nullptr];
++    [fm createDirectoryAtPath:dest withIntermediateDirectories:YES attributes:nil error:nullptr];
++    for (NSString *entry in entries) {
++        NSString *src = [source stringByAppendingPathComponent:entry];
++        NSString *dst = [dest stringByAppendingPathComponent:entry];
++        [fm copyItemAtPath:src toPath:dst error:nullptr];
++    }
++}
++
++// Mirror the macOS overlay union: the engine-owned Data files (fonts, packs,
++// default.map, mission maps) ship in the app bundle and must also be present
++// under the imported game-data Data/ for the engine's data check to pass.
++void merge_bundle_engine_data(NSString *staging) {
++    NSFileManager *fm = [NSFileManager defaultManager];
++    NSString *bundle = NSBundle.mainBundle.bundlePath;
++    NSString *engine_data = [bundle stringByAppendingPathComponent:@"Data"];
++    if (![fm fileExistsAtPath:engine_data]) {
++        return;
++    }
++    NSString *dest = [staging stringByAppendingPathComponent:@"Data"];
++    [fm createDirectoryAtPath:dest withIntermediateDirectories:YES attributes:nil error:nullptr];
++    NSArray *entries = [fm contentsOfDirectoryAtPath:engine_data error:nullptr];
++    for (NSString *entry in entries) {
++        NSString *src = [engine_data stringByAppendingPathComponent:entry];
++        NSString *dst = [dest stringByAppendingPathComponent:entry];
++        if (![fm fileExistsAtPath:dst]) {
++            [fm copyItemAtPath:src toPath:dst error:nullptr];
++        }
++    }
++}
++
++void promote_game_data(const std::string &staging, const std::string &docs) {
++    NSFileManager *fm = [NSFileManager defaultManager];
++    NSString *staging_path = [NSString stringWithUTF8String:staging.c_str()];
++    NSString *docs_path = [NSString stringWithUTF8String:docs.c_str()];
++    NSString *live = [docs_path stringByAppendingPathComponent:@"GameData"];
++
++    // Preserve Save/ from the live tree across a re-import.
++    NSString *old_save = [live stringByAppendingPathComponent:@"Save"];
++    NSString *new_save = [staging_path stringByAppendingPathComponent:@"Save"];
++    if ([fm fileExistsAtPath:old_save]) {
++        [fm createDirectoryAtPath:new_save withIntermediateDirectories:YES attributes:nil error:nullptr];
++        NSArray *items = [fm contentsOfDirectoryAtPath:old_save error:nullptr];
++        for (NSString *item in items) {
++            [fm copyItemAtPath:[old_save stringByAppendingPathComponent:item]
++                        toPath:[new_save stringByAppendingPathComponent:item]
++                         error:nullptr];
++        }
++    }
++
++    // Atomic promotion: never overwrite the live tree in place.
++    NSString *backup = [docs_path stringByAppendingPathComponent:@"GameData.old"];
++    [fm removeItemAtPath:backup error:nullptr];
++    if ([fm fileExistsAtPath:live]) {
++        [fm moveItemAtPath:live toPath:backup error:nullptr];
++    }
++    [fm moveItemAtPath:staging_path toPath:live error:nullptr];
++    [fm removeItemAtPath:backup error:nullptr];
++}
++
++} // namespace
++
++void mark_failed(const std::string &message) {
++    PickerState &st = picker();
++    {
++        std::lock_guard<std::mutex> lock(st.mutex);
++        st.error = message;
++    }
++    st.state.store(State::failed);
++}
++
++void run_import(NSURL *url) {
++    PickerState &st = picker();
++    st.state.store(State::copying);
++
++    std::string picked = path_from_url(url);
++    std::string root = find_game_root(picked);
++    if (root.empty()) {
++        {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            st.error = "Selected folder has no campaign.txt (not a Pharaoh game install).";
++        }
++        st.state.store(State::failed);
++        return;
++    }
++
++    NSFileManager *fm = [NSFileManager defaultManager];
++    NSArray *docs_urls = [fm URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask];
++    if (docs_urls.count == 0) {
++        std::lock_guard<std::mutex> lock(st.mutex);
++        st.error = "App Documents directory is unavailable.";
++        st.state.store(State::failed);
++        return;
++    }
++    std::string docs = path_from_url(docs_urls.firstObject);
++    std::string staging = docs + "/GameData.staging";
++
++    [fm removeItemAtPath:[NSString stringWithUTF8String:staging.c_str()] error:nullptr];
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
++        @autoreleasepool {
++            NSString *src = [NSString stringWithUTF8String:root.c_str()];
++            NSString *dst = [NSString stringWithUTF8String:staging.c_str()];
++            copy_folder(src, dst);
++            merge_bundle_engine_data(dst);
++            promote_game_data(staging, docs);
++            {
++                std::lock_guard<std::mutex> lock(st.mutex);
++                st.result_path = docs + "/GameData";
++            }
++            st.state.store(State::done);
++        }
++    });
++}
++
++} // namespace ios_picker
++
++// Keep the delegate at global scope (Objective-C declarations cannot live in a
++// C++ namespace). It only forwards into the ios_picker namespace.
++@interface PickerDelegate : NSObject <UIDocumentPickerDelegate>
++@end
++
++@implementation PickerDelegate
++
+++ (PickerDelegate *)sharedDelegate {
++    static PickerDelegate *delegate = nil;
++    static dispatch_once_t once;
++    dispatch_once(&once, ^{
++        delegate = [[PickerDelegate alloc] init];
++    });
++    return delegate;
++}
++
++- (void)documentPicker:(UIDocumentPickerViewController *)controller
++    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
++    (void)controller;
++    if (urls.count > 0) {
++        NSURL *url = urls.firstObject;
++        [url startAccessingSecurityScopedResource];
++        ios_picker::run_import(url);
++    } else {
++        ios_picker::mark_failed("No folder was selected.");
++    }
++}
++
++- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
++    (void)controller;
++    ios_picker::mark_failed("Folder selection was cancelled.");
++}
++
++@end
++
++namespace ios_picker {
++
++bool start_folder_pick() {
++    PickerState &st = picker();
++    State expected = State::idle;
++    if (!st.state.compare_exchange_strong(expected, State::picking)) {
++        return false;
++    }
++
++    dispatch_async(dispatch_get_main_queue(), ^{
++        UIViewController *vc = root_view_controller();
++        if (!vc) {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            st.error = "Game window is not ready for the folder picker.";
++            st.state.store(State::failed);
++            return;
++        }
++        UIDocumentPickerViewController *picker_vc =
++            [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]];
++        picker_vc.allowsMultipleSelection = NO;
++        picker_vc.delegate = [PickerDelegate sharedDelegate];
++        [vc presentViewController:picker_vc animated:YES completion:nil];
++    });
++    return true;
++}
++
++bool is_active() {
++    State s = picker().state.load();
++    return s == State::picking || s == State::copying;
++}
++
++int progress() {
++    return picker().last_progress.load();
++}
++
++bool take_result(std::string &path_out, std::string &error_out) {
++    PickerState &st = picker();
++    State s = st.state.load();
++    if (s == State::done) {
++        {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            path_out = st.result_path;
++            error_out.clear();
++        }
++        st.state.store(State::idle);
++        return true;
++    }
++    if (s == State::failed) {
++        {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            error_out = st.error;
++        }
++        st.state.store(State::idle);
++        return false;
++    }
++    return false;
++}
++
++} // namespace ios_picker
++
++#endif // GAME_PLATFORM_IOS
+diff --git a/src/platform/prefs.cpp b/src/platform/prefs.cpp
+index 23eedbc33..000704703 100644
+--- a/src/platform/prefs.cpp
++++ b/src/platform/prefs.cpp
+@@ -16,7 +16,7 @@ static FILE* open_pref_file(pcstr filename, pcstr mode) {
+ #if defined(GAME_PLATFORM_ANDROID)
+     bstring512 dir_path = SDL_AndroidGetExternalStoragePath();
+ #else
+-#if defined(GAME_PLATFORM_MACOSX)
++#if defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS)
+     char* tmp_path = SDL_GetPrefPath("", "Akhenaten");
+ #else
+     char* tmp_path = SDL_GetBasePath();
+diff --git a/src/platform/renderer.cpp b/src/platform/renderer.cpp
+index 2ecd9074e..27e617b7e 100644
+--- a/src/platform/renderer.cpp
++++ b/src/platform/renderer.cpp
+@@ -54,7 +54,7 @@
+ #undef max
+ #endif
+ 
+-#if !(defined(GAME_PLATFORM_ANDROID) || defined(GAME_PLATFORM_WEB) || defined(GAME_PLATFORM_MACOSX))
++#if !(defined(GAME_PLATFORM_ANDROID) || defined(GAME_PLATFORM_WEB) || defined(GAME_PLATFORM_MACOSX) || defined(GAME_PLATFORM_IOS))
+ #include <gpupixel.h>
+ #endif
+ 

@@ -1,0 +1,231 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a523cdc29..90558186c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -789,6 +789,8 @@ file(GLOB PLATFORM_FILES ${PROJECT_SOURCE_DIR}/src/platform/*.cpp)
+ if(PLATFORM_IOS)
+     # Native iOS glue: UIDocumentPicker-based game-data importer (ObjC++).
+     list(APPEND PLATFORM_FILES ${PROJECT_SOURCE_DIR}/src/platform/platform_ios_picker.mm)
++    # Native three-dot control overlay (pause, speed, touch help).
++    list(APPEND PLATFORM_FILES ${PROJECT_SOURCE_DIR}/src/platform/platform_ios_overlay.mm)
+ endif()
+ file(GLOB CONFIG_FILES ${PROJECT_SOURCE_DIR}/src/config/*.cpp)
+ file(GLOB CONTENT_FILES ${PROJECT_SOURCE_DIR}/src/content/*.cpp)
+diff --git a/src/platform/platform_ios.cpp b/src/platform/platform_ios.cpp
+index 781c3ac90..48ad36769 100644
+--- a/src/platform/platform_ios.cpp
++++ b/src/platform/platform_ios.cpp
+@@ -3,6 +3,7 @@
+ #if defined(GAME_PLATFORM_IOS)
+ 
+ #include "platform/arguments.h"
++#include "platform/platform_ios_overlay.h"
+ #include "core/bstring.h"
+ #include "core/log.h"
+ #include "game/game.h"
+@@ -70,6 +71,8 @@ void platform_setup_begin() {
+ }
+ 
+ void platform_run_init_callback() {
++    // Native three-dot control menu over the SDL view (pause, speed, help).
++    ios_overlay::install_overlay();
+ }
+ 
+ void platform_run_per_frame_callback() {
+diff --git a/src/platform/platform_ios_overlay.h b/src/platform/platform_ios_overlay.h
+new file mode 100644
+index 000000000..242ece9dd
+--- /dev/null
++++ b/src/platform/platform_ios_overlay.h
+@@ -0,0 +1,18 @@
++#pragma once
++
++#include "platform.h"
++
++#if defined(GAME_PLATFORM_IOS)
++
++namespace ios_overlay {
++
++// Install the native "three-dot" control menu over the SDL window (pause,
++// speed, touch help). Safe to call more than once; the button is created once.
++void install_overlay();
++
++// Remove the overlay button (used on teardown).
++void remove_overlay();
++
++} // namespace ios_overlay
++
++#endif
+diff --git a/src/platform/platform_ios_overlay.mm b/src/platform/platform_ios_overlay.mm
+new file mode 100644
+index 000000000..50205a4de
+--- /dev/null
++++ b/src/platform/platform_ios_overlay.mm
+@@ -0,0 +1,167 @@
++#include "platform_ios_overlay.h"
++
++#include "platform.h"
++
++#if defined(GAME_PLATFORM_IOS)
++
++#import <UIKit/UIKit.h>
++
++#include <SDL.h>
++#include <SDL_syswm.h>
++
++#include "game/game_events.h"
++#include "input/hotkey.h"
++
++namespace ios_overlay {
++
++namespace {
++
++// Forward declaration so the ObjC target can reach the C++ sheet helper.
++void show_action_sheet(UIButton *source);
++
++} // namespace
++
++} // namespace ios_overlay
++
++@interface EmeraldTabletOverlayTarget : NSObject
++- (void)showActionSheet:(UIButton *)sender;
++@end
++
++@implementation EmeraldTabletOverlayTarget
++- (void)showActionSheet:(UIButton *)sender {
++    ios_overlay::show_action_sheet(sender);
++}
++@end
++
++namespace ios_overlay {
++namespace {
++
++UIWindow *sdl_ui_window() {
++    SDL_Window *window = SDL_GetKeyboardFocus();
++    if (!window) {
++        return nullptr;
++    }
++    SDL_SysWMinfo info;
++    SDL_VERSION(&info.version);
++    if (!SDL_GetWindowWMInfo(window, &info)) {
++        return nullptr;
++    }
++    return (__bridge UIWindow *)info.info.uikit.window;
++}
++
++UIViewController *presenting_controller() {
++    UIWindow *ui_window = sdl_ui_window();
++    UIViewController *vc = ui_window.rootViewController;
++    while (vc.presentedViewController) {
++        vc = vc.presentedViewController;
++    }
++    return vc;
++}
++
++// Native action sheet: pause/resume, speed -, speed +, and a short help text.
++void show_action_sheet(UIButton *source) {
++    UIViewController *vc = presenting_controller();
++    if (!vc) {
++        return;
++    }
++
++    UIAlertController *sheet =
++        [UIAlertController alertControllerWithTitle:@"Game controls"
++                                             message:nil
++                                      preferredStyle:UIAlertControllerStyleActionSheet];
++    sheet.popoverPresentationController.sourceView = source;
++    sheet.popoverPresentationController.sourceRect = source.bounds;
++
++    [sheet addAction:[UIAlertAction actionWithTitle:@"Pause / Resume"
++                                              style:UIAlertActionStyleDefault
++                                            handler:^(UIAlertAction *action) {
++                                                events::emit(event_toggle_pause{1});
++                                            }]];
++    [sheet addAction:[UIAlertAction actionWithTitle:@"Speed +"
++                                              style:UIAlertActionStyleDefault
++                                            handler:^(UIAlertAction *action) {
++                                                events::emit(event_change_gamespeed{true});
++                                            }]];
++    [sheet addAction:[UIAlertAction actionWithTitle:@"Speed −"
++                                              style:UIAlertActionStyleDefault
++                                            handler:^(UIAlertAction *action) {
++                                                events::emit(event_change_gamespeed{false});
++                                            }]];
++    [sheet addAction:[UIAlertAction actionWithTitle:@"Controls help"
++                                              style:UIAlertActionStyleDefault
++                                            handler:^(UIAlertAction *action) {
++                                                UIAlertController *help =
++                                                    [UIAlertController alertControllerWithTitle:@"Touch controls"
++                                                                                        message:@"Tap: select and press UI controls\n"
++                                                                                                @"Drag one finger: pan the map\n"
++                                                                                                @"Pinch: zoom\n"
++                                                                                                @"Long press or two-finger tap: inspect / cancel\n\n"
++                                                                                                @"Apple Pencil mode (Options menu): Pencil selects and places; fingers pan and zoom; finger taps never change the city while Pencil mode is on."
++                                                                                 preferredStyle:UIAlertControllerStyleAlert];
++                                                [help addAction:[UIAlertAction actionWithTitle:@"OK"
++                                                                                         style:UIAlertActionStyleDefault
++                                                                                       handler:nil]];
++                                                [vc presentViewController:help animated:YES completion:nil];
++                                            }]];
++    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
++                                              style:UIAlertActionStyleCancel
++                                            handler:nil]];
++
++    [vc presentViewController:sheet animated:YES completion:nil];
++}
++
++UIButton *g_overlay_button = nil;
++EmeraldTabletOverlayTarget *g_overlay_target = nil;
++
++} // namespace
++
++void install_overlay() {
++    dispatch_async(dispatch_get_main_queue(), ^{
++        if (g_overlay_button) {
++            return;
++        }
++        UIWindow *ui_window = sdl_ui_window();
++        if (!ui_window) {
++            return;
++        }
++
++        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
++        button.translatesAutoresizingMaskIntoConstraints = NO;
++        button.accessibilityIdentifier = @"emeraldtablet.overlay-menu";
++        button.accessibilityLabel = @"Game controls";
++        button.accessibilityHint = @"Pause, speed, and touch help";
++        button.tintColor = UIColor.whiteColor;
++        button.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.55];
++        button.layer.cornerRadius = 8;
++        [button setTitle:@"⋮" forState:UIControlStateNormal];
++        button.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
++        [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
++        g_overlay_target = [EmeraldTabletOverlayTarget new];
++        [button addTarget:g_overlay_target
++                   action:@selector(showActionSheet:)
++         forControlEvents:UIControlEventTouchUpInside];
++
++        [ui_window addSubview:button];
++        g_overlay_button = button;
++
++        [NSLayoutConstraint activateConstraints:@[
++            [button.topAnchor constraintEqualToAnchor:ui_window.safeAreaLayoutGuide.topAnchor constant:4],
++            [button.trailingAnchor constraintEqualToAnchor:ui_window.safeAreaLayoutGuide.trailingAnchor constant:-8],
++            [button.widthAnchor constraintEqualToConstant:40],
++            [button.heightAnchor constraintEqualToConstant:32],
++        ]];
++    });
++}
++
++void remove_overlay() {
++    dispatch_async(dispatch_get_main_queue(), ^{
++        if (g_overlay_button) {
++            [g_overlay_button removeFromSuperview];
++            g_overlay_button = nil;
++        }
++    });
++}
++
++} // namespace ios_overlay
++
++#endif

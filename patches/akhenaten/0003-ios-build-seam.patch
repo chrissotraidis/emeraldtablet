@@ -301,7 +301,7 @@ index 14855a375..ae56f8519 100644
 -
 diff --git a/res/ios/Info.plist b/res/ios/Info.plist
 new file mode 100644
-index 000000000..aabf1c255
+index 000000000..92e0cf2a3
 --- /dev/null
 +++ b/res/ios/Info.plist
 @@ -0,0 +1,44 @@
@@ -981,10 +981,10 @@ index 000000000..ef2cceadf
 +#endif // GAME_PLATFORM_IOS
 diff --git a/src/platform/platform_ios_picker.mm b/src/platform/platform_ios_picker.mm
 new file mode 100644
-index 000000000..0708abaf2
+index 000000000..1d3ccd522
 --- /dev/null
 +++ b/src/platform/platform_ios_picker.mm
-@@ -0,0 +1,292 @@
+@@ -0,0 +1,329 @@
 +#include "platform_ios_picker.h"
 +
 +#if defined(GAME_PLATFORM_IOS)
@@ -1074,6 +1074,24 @@ index 000000000..0708abaf2
 +    }
 +}
 +
++// Byte size of a folder tree (used for the import low-space preflight).
++long long folder_size(NSString *path) {
++    NSFileManager *fm = [NSFileManager defaultManager];
++    NSArray *entries = [fm contentsOfDirectoryAtPath:path error:nullptr];
++    long long total = 0;
++    for (NSString *entry in entries) {
++        NSString *full = [path stringByAppendingPathComponent:entry];
++        BOOL is_dir = NO;
++        if ([fm fileExistsAtPath:full isDirectory:&is_dir] && is_dir) {
++            total += folder_size(full);
++        } else {
++            total += (long long)[[fm attributesOfItemAtPath:full error:nullptr]
++                                  fileSize];
++        }
++    }
++    return total;
++}
++
 +// Mirror the macOS overlay union: the engine-owned Data files (fonts, packs,
 +// default.map, mission maps) ship in the app bundle and must also be present
 +// under the imported game-data Data/ for the engine's data check to pass.
@@ -1161,6 +1179,25 @@ index 000000000..0708abaf2
 +    }
 +    std::string docs = path_from_url(docs_urls.firstObject);
 +    std::string staging = docs + "/GameData.staging";
++
++    // Low-space preflight: fail before copying instead of leaving a partial
++    // staging tree. Compare the picked folder size against the app container
++    // volume's available capacity (NSURLVolumeAvailableCapacityForImportantUsageKey).
++    NSURL *docs_url = docs_urls.firstObject;
++    NSNumber *available = nil;
++    [docs_url getResourceValue:&available
++                        forKey:NSURLVolumeAvailableCapacityForImportantUsageKey
++                         error:nullptr];
++    long long needed = folder_size([NSString stringWithUTF8String:root.c_str()]);
++    if (available != nil && available.longLongValue > 0
++        && needed > available.longLongValue) {
++        {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            st.error = "Not enough free storage for the selected game data.";
++        }
++        st.state.store(State::failed);
++        return;
++    }
 +
 +    [fm removeItemAtPath:[NSString stringWithUTF8String:staging.c_str()] error:nullptr];
 +    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{

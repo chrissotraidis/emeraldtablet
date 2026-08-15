@@ -15,7 +15,7 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 | G1 — macOS baseline | PASS | Patched self-contained arm64 app (`minos 11.7`, system frameworks only), hermetic suite `194 passed, 0 failed`, authentic Pharaoh+Cleopatra play in Nubt city with render/input/audio/save evidence and user confirmation. `docs/validation/g1/patched-macos.md`, `docs/validation/g1/hermetic-full.md`, `docs/validation/g1/play-macos.md` |
 | G2 — iOS build seam | PASS | `GAME_PLATFORM_IOS` split, minimal iOS backend, iOS app target (families 1,2), desktop-only components off. iPhone Simulator SDK build links and audits clean (arm64, iOS 15.0, UIKit/Metal only). `docs/validation/g2-ios-seam.md`, `docs/validation/g2-ios-audit.txt` |
 | G3 — iPhone Simulator | IN PROGRESS | Installed + launched on iPhone 16 (iOS 18.5); native Game Data Required flow; UIDocumentPicker importer end-to-end; authentic data reaches menu, family, chronology, Nubt briefing; macOS save (format 189) loaded via Continue → Nubt city on phone with autosaves; in-city tap works. Phone touch scale/safe-area/keyboard pass remains. `docs/validation/g3-iphone-simulator.md` |
-| G4 — iPhone lifecycle | IN PROGRESS | Background → lifecycle autosave (`Save/<player>/lifecycle.svx`, format 189) + sim pause implemented and measured; terminate-while-backgrounded + relaunch keeps the save. 20 bg/fg cycles, lifecycle-load via UI, manual-save preservation, import-interrupt/low-storage, update-survival remain. `docs/validation/g4-iphone-lifecycle.md` |
+| G4 — iPhone lifecycle | CORE PASS | Background → lifecycle autosave + pause implemented and measured; 30 bg/fg cycles survive with one PID; lifecycle save loads via Continue (VERSION 189, 114 sections); manual saves byte-identical across cycles and in-place update; app relaunches with data intact after reinstall; importer gained a low-space preflight (patch 0003). `docs/validation/g4-iphone-lifecycle.md` |
 | G5 — iPad Simulator and Pencil shell | CORE PASS | Proven on all three iPads: mini (Pencil row toggles), 13" (full-screen city-from-save, native "⋮" overlay, Pause/Speed actions), 11" (city-from-save, full-screen render, overlay, Pencil toggle). `docs/validation/g5-ipad-pencil-shell.md` |
 | G6 — Compatibility matrix | NOT STARTED | Developer-preview subset after G5. |
 | G7 — Physical iPhone | HUMAN GATE | No iPhone is attached. |
@@ -132,6 +132,48 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 - Next: G3/G4 remainders (iPhone), G6 subset, G9.
 - Fact vs inference: facts measured; simulated Pencil is not physical
   Pencil acceptance (G8).
+
+### 2026-08-15 — G4 remainders on iPhone 16
+
+- Host/OS: Chris-Macbook-Air-M1.local / macOS 26.5.2
+- Device: iPhone 16 Simulator, iOS 18.5, UDID
+  `212F13B4-01EE-453E-8B30-EFD7198D6C42` (only simulator booted).
+- Wrapper/engine: main + patches 0001-0006; launch PID 32993.
+- Result:
+  1. Lifecycle-save UI load: Continue loaded `lifecycle.svx` (`VERSION 189,
+     114 sections (0 missing)`), city rendered.
+  2. 30 bg/fg cycles (Preferences background + app relaunch): same PID alive,
+     lifecycle.svx written each background, pause banner after cycles.
+  3. Manual-save preservation: `quicksave.svx` + `family.sav` SHA-256
+     identical before/after 30 cycles and the in-place update.
+  4. In-place update: `simctl terminate` + reinstall + relaunch; saves
+     byte-identical, data loads after re-pointing the new container cfg.
+- Evidence: `docs/validation/g4-iphone-lifecycle.md`,
+  `artifacts/private/g4-iphone/` (gitignored).
+- Proves: lifecycle-load via UI, 30-cycle survival, manual-save preservation,
+  update survival.
+- Open: interrupted-import/low-storage preflight (destructive storage test),
+  physical-device behavior (G7).
+- Fact vs inference: facts measured; no test was weakened.
+
+### 2026-08-15 — importer low-space preflight (patch 0003 regenerated)
+
+- Change: `src/platform/platform_ios_picker.mm` now measures the picked game
+  folder with `folder_size()` and fails before copying when the app container
+  volume's available capacity
+  (`NSURLVolumeAvailableCapacityForImportantUsageKey`) is smaller than the
+  folder. Import staging/promotion was already atomic (no partial live tree;
+  stale staging removed on the next import).
+- Patch: `patches/akhenaten/0003-ios-build-seam.patch` regenerated from
+  pin+0001+0002 so the queue stays clean; `check-repo-safety.sh` passes;
+  0004-0006 apply cleanly after it.
+- Verified: iOS Simulator rebuild `** BUILD SUCCEEDED **`, audit OK, string
+  present in the binary, post-change launch (PID 41561) renders and loads
+  data.
+- Not verified: a full low-storage runtime simulation (would require filling
+  the host disk). The failure path is compile/link-verified.
+- Fact vs inference: build/launch facts measured; runtime low-storage path
+  inferred from the preflight code.
 
 ### 2026-08-15 — check-repo-safety.sh patch-queue fix
 

@@ -20,7 +20,7 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 | G6 — Compatibility matrix | IN PROGRESS | Developer-preview subset measured 2026-08-15: 22/22 maps load (Pharaoh early/mid/late, Cleopatra campaign + custom, sandbox); behavioral categories covered by the engine suite; iOS→macOS save (format 189) loads; three upstream timing/data flaky tests documented (109/126/137 — verified not Apple regressions by clean-engine bisection). `docs/validation/g6-compatibility-matrix.md` |
 | G7 — Physical iPhone | HUMAN GATE | No iPhone is attached. |
 | G8 — Physical iPad and Apple Pencil | HUMAN GATE | No iPad or Pencil is attached. |
-| G9 — Release engineering | NOT STARTED | Local data-free artifacts after the Simulator gates. |
+| G9 — Release engineering | IN PROGRESS | Self-contained macOS dmg + unsigned data-free IPA built and verified; source manifest with pin/patch hashes/dependency versions/artifact SHA-256; install/compatibility/release docs; release verifier (local == origin/main == GitHub API main). Notices completed. Remains: any hosted release (not authorized), naming/trademark review. `docs/RELEASE_CHECKLIST.md`, `docs/COMPATIBILITY.md`, `docs/INSTALL_*` |
 
 ## Pinned inputs
 
@@ -228,6 +228,31 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 - Next: re-run hermetic suite to record flake range; G9 release engineering.
 - Fact vs inference: map loads, save loads, and flake patterns measured;
   "upstream" attribution is from clean-engine reproduction.
+
+### 2026-08-15 — G9 release artifacts and docs
+
+- Host/OS: Chris-Macbook-Air-M1.local / macOS 26.5.2
+- Artifacts (ignored `build/release/`, wrapper `45765dd`):
+  - `EmeraldTablet-macOS-45765dd.dmg` (16.3 MB) — self-contained arm64 app,
+    audited (minos 11.7, system frameworks only), mounted and scanned
+    data-free.
+  - `EmeraldTablet-iOS-45765dd.ipa` (11.2 MB) — unsigned, `Payload/` layout,
+    audited, unzipped and scanned data-free (no campaign.txt/saves/packs/
+    signing material).
+  - `SOURCE-MANIFEST.txt` — wrapper commit, engine pin
+    `38cb947ead3895408ea32f74fda6e37921a42bd3`, patch queue with per-patch
+    SHA-256, pinned dependency versions (SDL2 2.32.10, SDL2_mixer 2.8.0,
+    zlib v1.3.1, libpng v1.6.50, FreeType VER-2-13-3, HarfBuzz 7.3.0,
+    stb 5736b15, ImGui v1.92.2), artifact SHA-256.
+- New scripts: `package-macos-dmg.sh`, `package-ios-ipa.sh`,
+  `generate-source-manifest.sh`, `verify-release-candidate.sh`.
+- New docs: `INSTALL_MACOS.md`, `INSTALL_IPA.md`, `COMPATIBILITY.md`,
+  `RELEASE_CHECKLIST.md`; `THIRD_PARTY_NOTICES.md` completed; README links.
+- Verified: `scripts/verify-release-candidate.sh` passes (triple SHA match,
+  release dir data-free); both artifacts scanned after "download-back".
+- Open: naming/trademark review, AGPL/legal review before any hosted or store
+  distribution (not authorized yet), physical G7/G8.
+- Fact vs inference: builds, audits, mounts, scans, and SHA matches measured.
 
 ### 2026-08-15 — check-repo-safety.sh patch-queue fix
 

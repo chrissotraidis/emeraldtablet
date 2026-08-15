@@ -31,7 +31,7 @@ legally obtained files locally.
 [What works](#what-works-today) · [Touch controls](#touch-controls) · [Supported platforms](#supported-platforms) ·
 [Get the game data](#game-data-requirements) · [Build and run on macOS](#build-and-run-on-macos) ·
 [Run in an iOS Simulator](#run-in-an-ios-simulator) · [How it works](#how-it-works) ·
-[Project status](STATE.md)
+[Compatibility](docs/COMPATIBILITY.md) · [Project status](STATE.md)
 
 ## Supported platforms
 
@@ -231,6 +231,10 @@ These are described as future work rather than implied by the source preview.
 - [Feasibility and implementation plan](docs/AKHENATEN-APPLE-FEASIBILITY-AND-IMPLEMENTATION-PLAN.md)
 - [Goal loop and gate queue](docs/GOAL_LOOP.md)
 - [Implementation plan index](docs/IMPLEMENTATION_PLAN.md)
+- [Install on macOS](docs/INSTALL_MACOS.md)
+- [Install the iOS build (unsigned IPA)](docs/INSTALL_IPA.md)
+- [Compatibility](docs/COMPATIBILITY.md)
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
 - [Validation evidence](docs/validation/g0-workspace.md)
 - [Project state](STATE.md)
 - [Rights and licensing boundary](RIGHTS_AND_LICENSES.md)

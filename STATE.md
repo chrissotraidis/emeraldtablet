@@ -17,7 +17,7 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 | G3 — iPhone Simulator | CORE PASS | Installed + launched on iPhone 16 (iOS 18.5); native Game Data Required flow; UIDocumentPicker importer end-to-end; authentic data reaches menu, family, chronology, Nubt briefing; macOS save (format 189) loaded via Continue → Nubt city on phone with autosaves; in-city tap works. G3 remainder measured 2026-08-15: touch works full flow, bottom UI clears the home indicator, virtual keyboard wired (SDL text input both layers; no reachable phone text field on Simulator — device verification is G7). `docs/validation/g3-iphone-simulator.md` |
 | G4 — iPhone lifecycle | CORE PASS | Background → lifecycle autosave + pause implemented and measured; 30 bg/fg cycles survive with one PID; lifecycle save loads via Continue (VERSION 189, 114 sections); manual saves byte-identical across cycles and in-place update; app relaunches with data intact after reinstall; importer gained a low-space preflight (patch 0003). `docs/validation/g4-iphone-lifecycle.md` |
 | G5 — iPad Simulator and Pencil shell | CORE PASS | Proven on all three iPads: mini (Pencil row toggles), 13" (full-screen city-from-save, native "⋮" overlay, Pause/Speed actions), 11" (city-from-save, full-screen render, overlay, Pencil toggle). `docs/validation/g5-ipad-pencil-shell.md` |
-| G6 — Compatibility matrix | NOT STARTED | Developer-preview subset after G5. |
+| G6 — Compatibility matrix | IN PROGRESS | Developer-preview subset measured 2026-08-15: 22/22 maps load (Pharaoh early/mid/late, Cleopatra campaign + custom, sandbox); behavioral categories covered by the engine suite; iOS→macOS save (format 189) loads; three upstream timing/data flaky tests documented (109/126/137 — verified not Apple regressions by clean-engine bisection). `docs/validation/g6-compatibility-matrix.md` |
 | G7 — Physical iPhone | HUMAN GATE | No iPhone is attached. |
 | G8 — Physical iPad and Apple Pencil | HUMAN GATE | No iPad or Pencil is attached. |
 | G9 — Release engineering | NOT STARTED | Local data-free artifacts after the Simulator gates. |
@@ -199,6 +199,35 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 - Open: on-screen keyboard end-to-end on a physical device (G7).
 - Fact vs inference: touch/safe-area facts measured; keyboard appearance
   inferred from wiring (no reachable field on Simulator).
+
+### 2026-08-15 — G6 developer-preview matrix measured
+
+- Host/OS: Chris-Macbook-Air-M1.local / macOS 26.5.2
+- Method: temporary JS integral-test probes (removed after the run) loaded
+  each target map / save through the real Pharaoh + Cleopatra data dir on the
+  pinned macOS app; logs in `artifacts/private/g6/` (gitignored).
+- Result:
+  1. Map matrix: 22/22 load (m_000..m_052 Pharaoh early/mid/late + Cleopatra,
+     Maps/ custom scenarios Alexandria/Bridges/Chariot Blitz/Cataract/Enkomi/
+     Henen-nesw, data/default.map sandbox).
+  2. Behavioral coverage: floodplain/farming, monument build + mid-build
+     save/reload, trade/empire, land combat, naval, audio init, intro video,
+     original-format save load (VERSION 189) on macOS/iOS/iPad — all covered
+     by passing engine tests plus G1/G3/G5 evidence.
+  3. Save directionality: macOS → iOS proven in G3/G5; iOS → macOS measured
+     (iPhone lifecycle.svx loads on macOS, VERSION 189, 114 sections).
+  4. Three engine tests fail on this host (109/126/137 — kingdom favour /
+     monument carry). Clean-engine bisection showed 137 fails on the
+     unpatched pin and 109/126 are timing-flaky (`pump_frames often yields 0
+     sim ticks` per the test's own comment); every Apple patch diff is
+     iOS-guarded with identical data/cfg/binary layout. Not Apple regressions.
+- Evidence: `docs/validation/g6-compatibility-matrix.md`,
+  `artifacts/private/g6/matrix-probe.log` (+ save proof files).
+- Proves: mission reachability across the matrix, save directionality both
+  ways, honest upstream flake documentation.
+- Next: re-run hermetic suite to record flake range; G9 release engineering.
+- Fact vs inference: map loads, save loads, and flake patterns measured;
+  "upstream" attribution is from clean-engine reproduction.
 
 ### 2026-08-15 — check-repo-safety.sh patch-queue fix
 

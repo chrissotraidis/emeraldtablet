@@ -231,7 +231,7 @@ These are described as future work rather than implied by the source preview.
 - [Feasibility and implementation plan](docs/AKHENATEN-APPLE-FEASIBILITY-AND-IMPLEMENTATION-PLAN.md)
 - [Goal loop and gate queue](docs/GOAL_LOOP.md)
 - [Implementation plan index](docs/IMPLEMENTATION_PLAN.md)
-- [Validation evidence](docs/validation/)
+- [Validation evidence](docs/validation/g0-workspace.md)
 - [Project state](STATE.md)
 - [Rights and licensing boundary](RIGHTS_AND_LICENSES.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)

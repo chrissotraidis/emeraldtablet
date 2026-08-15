@@ -1,4 +1,4 @@
-# G3 — iPhone Simulator
+# G3 — iPhone Simulator (core pass + G3 remainder measured)
 
 Host: Chris-Macbook-Air-M1.local / macOS 26.5.2 (25F84) arm64.
 Device: iPhone 16 (UDID `212F13B4-01EE-453E-8B30-EFD7198D6C42`), iOS 18.5,
@@ -77,6 +77,46 @@ registry, career, chronology, briefing, city, in-city tap.
 
 ## Next
 
-Finish the phone touch scale / safe-area / virtual-keyboard pass, then G4
-lifecycle (background pause, lifecycle autosave, 20 bg/fg cycles,
-terminate/relaunch).
+## G3 remainder measured (2026-08-15, patches 0001-0006)
+
+Host: Chris-Macbook-Air-M1.local / macOS 26.5.2. Device: iPhone 16 Simulator,
+iOS 18.5, landscape (UDID `212F13B4-...`), the only simulator booted.
+
+### Touch scale
+
+Touch input works through the full phone flow: splash tap, main-menu buttons,
+Continue (loads the city), in-city terrain inspector tap, and the native "⋮"
+overlay (`emeraldtablet.overlay-menu`) all register. The per-device display
+scale (patch 0005) also scales the touch coordinate mapping, so UI targets
+are reachable at the phone's native window size (log `Window resized to
+852 x 393`, render texture 1052x486). The known lossy synthetic-tap issue
+remains a simulator-automation artifact; held/repeated taps work.
+
+### Safe areas
+
+The game renders full-screen (content bbox 99% x 96.7% of the device
+framebuffer — the remaining margin is the game's own centered menu art, same
+as desktop). In-city the bottom UI (status/minimap panel) ends ~10px above
+the iPhone 16 landscape home-indicator band; no required control is clipped
+by the notch or home indicator. Evidence: `artifacts/private/g3-sim/`
+`safearea-city-11.png`, `touch-menu-11.png` (gitignored).
+
+### Virtual keyboard
+
+Wiring is complete at both layers: the engine calls
+`SDL_StartTextInput()`/`SDL_StopTextInput()` from
+`platform_show/hide_virtual_keyboard` (iOS platform), and the bundled SDL2
+UIKit driver surfaces the system keyboard for text input
+(`SDL_uikitviewcontroller.m` → `SDL_StartTextInput`). On the phone the
+fullscreen-only mobile layout hides the desktop File menu, so no text-field
+dialog (save naming / player naming) is reachable through the UI to
+end-to-end verify the on-screen keyboard on the Simulator; the console input
+box is only opened by a keyboard hotkey that the Simulator's hardware
+keyboard route does not deliver. The keyboard appearance itself is an iOS
+system behavior once SDL text input is active; physical-device verification
+is a G7 item.
+
+## Next
+
+G4 lifecycle remainders (background pause, lifecycle autosave, bg/fg cycles,
+terminate/relaunch) — completed 2026-08-15 (see g4 doc), then G6 subset.

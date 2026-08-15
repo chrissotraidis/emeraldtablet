@@ -14,7 +14,7 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 | G0 — Workspace and source safety | PASS | Clean pin `38cb947ead3895408ea32f74fda6e37921a42bd3`, empty patch queue, ignored `ref/`, `scripts/check-repo-safety.sh` passed. `docs/validation/g0-workspace.md` |
 | G1 — macOS baseline | PASS | Patched self-contained arm64 app (`minos 11.7`, system frameworks only), hermetic suite `194 passed, 0 failed`, authentic Pharaoh+Cleopatra play in Nubt city with render/input/audio/save evidence and user confirmation. `docs/validation/g1/patched-macos.md`, `docs/validation/g1/hermetic-full.md`, `docs/validation/g1/play-macos.md` |
 | G2 — iOS build seam | PASS | `GAME_PLATFORM_IOS` split, minimal iOS backend, iOS app target (families 1,2), desktop-only components off. iPhone Simulator SDK build links and audits clean (arm64, iOS 15.0, UIKit/Metal only). `docs/validation/g2-ios-seam.md`, `docs/validation/g2-ios-audit.txt` |
-| G3 — iPhone Simulator | IN PROGRESS | Installed + launched on iPhone 16 (iOS 18.5); native Game Data Required flow; UIDocumentPicker importer end-to-end; authentic data reaches menu, family, chronology, Nubt briefing; macOS save (format 189) loaded via Continue → Nubt city on phone with autosaves; in-city tap works. Phone touch scale/safe-area/keyboard pass remains. `docs/validation/g3-iphone-simulator.md` |
+| G3 — iPhone Simulator | CORE PASS | Installed + launched on iPhone 16 (iOS 18.5); native Game Data Required flow; UIDocumentPicker importer end-to-end; authentic data reaches menu, family, chronology, Nubt briefing; macOS save (format 189) loaded via Continue → Nubt city on phone with autosaves; in-city tap works. G3 remainder measured 2026-08-15: touch works full flow, bottom UI clears the home indicator, virtual keyboard wired (SDL text input both layers; no reachable phone text field on Simulator — device verification is G7). `docs/validation/g3-iphone-simulator.md` |
 | G4 — iPhone lifecycle | CORE PASS | Background → lifecycle autosave + pause implemented and measured; 30 bg/fg cycles survive with one PID; lifecycle save loads via Continue (VERSION 189, 114 sections); manual saves byte-identical across cycles and in-place update; app relaunches with data intact after reinstall; importer gained a low-space preflight (patch 0003). `docs/validation/g4-iphone-lifecycle.md` |
 | G5 — iPad Simulator and Pencil shell | CORE PASS | Proven on all three iPads: mini (Pencil row toggles), 13" (full-screen city-from-save, native "⋮" overlay, Pause/Speed actions), 11" (city-from-save, full-screen render, overlay, Pencil toggle). `docs/validation/g5-ipad-pencil-shell.md` |
 | G6 — Compatibility matrix | NOT STARTED | Developer-preview subset after G5. |
@@ -174,6 +174,31 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
   the host disk). The failure path is compile/link-verified.
 - Fact vs inference: build/launch facts measured; runtime low-storage path
   inferred from the preflight code.
+
+### 2026-08-15 — G3 remainder measured on iPhone 16
+
+- Host/OS: Chris-Macbook-Air-M1.local / macOS 26.5.2
+- Device: iPhone 16 Simulator, iOS 18.5, UDID
+  `212F13B4-01EE-453E-8B30-EFD7198D6C42` (only simulator booted).
+- Result:
+  1. Touch scale: full phone flow works (splash, menu, Continue→city,
+     terrain inspector, "⋮" overlay) at the native 852x393 window with the
+     0005 per-device scale.
+  2. Safe areas: game fills the framebuffer; in-city bottom UI clears the
+     home indicator by ~10px; no control clipped.
+  3. Virtual keyboard: engine `SDL_StartTextInput` ↔ SDL UIKit driver both
+     present; no text-field dialog reachable via the phone UI on the
+     Simulator (fullscreen-only layout hides the desktop File menu; console
+     hotkey not delivered by the hardware-keyboard route). Device
+     verification is a G7 item.
+- Evidence: `docs/validation/g3-iphone-simulator.md`,
+  `artifacts/private/g3-sim/safearea-city-11.png`,
+  `artifacts/private/g3-sim/touch-menu-11.png` (gitignored).
+- Proves: touch reachability + safe-area clearance on the phone; keyboard
+  wiring at both layers.
+- Open: on-screen keyboard end-to-end on a physical device (G7).
+- Fact vs inference: touch/safe-area facts measured; keyboard appearance
+  inferred from wiring (no reachable field on Simulator).
 
 ### 2026-08-15 — check-repo-safety.sh patch-queue fix
 

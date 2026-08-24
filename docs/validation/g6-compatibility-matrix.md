@@ -59,8 +59,8 @@ upstream timing/data behaviors, not Apple-patch regressions (see below).
 | Naval | `139_naval_mission_sea`, `19/20/22/23_*wharf*`, `53_enemy_warship_registered`, `100/101_*transport*`, `103_transport_embark_js_api` |
 | Audio | G1 Mac play: FLAC/MP3/OGG/MIDI initialized (57) during authentic Nubt play |
 | Videos | G3: intro video played with active audio session on iPhone Simulator |
-| Original save load | G1/G3/G5: original-format saves (VERSION 189, 114 sections, 0 missing) load on macOS, iPhone, iPad |
-| Original 1999-game save import | **Not measured** — no original-game save was supplied locally; Akhenaten saves are format 189. Loading Akhenaten saves in the 1999 game is not supported or tested. |
+| Akhenaten save load | G1/G3/G5: format-189 saves (114 sections, 0 missing) load on macOS, iPhone, iPad |
+| Original 1999-game save import | **Two samples measured; neither supported for play.** Version-header-160 Sais (population 6,374) converts but shows broken map/routing state on the physical iPad. The very large Alexandria save crashes in legacy religion-supply state at population 58,822. Files remain private/gitignored. Loading Akhenaten saves in the 1999 game is unsupported and untested. |
 | macOS → iOS save | G3/G5: macOS quicksave loaded on iPhone/iPad via Continue |
 | iOS → macOS save | **Measured**: iPhone-created `lifecycle.svx` (format 189) copied into the macOS data dir and loaded via `__game_load_savegame` — `File read successful: ...iphone.svx 0@ --- CONTAINER rev 1, VERSION 189, 114 sections (0 missing) ---`, marker `g6_ios_save_loaded`. Evidence: `artifacts/private/g6/iphone-lifecycle-proof.svx`, `iphone-save-on-mac.svx` (gitignored) |
 | Sandbox / custom map | `data/default.map` + `Maps/*.map` load (probe) |

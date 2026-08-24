@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000017 Mon Sep 17 00:00:00 2001
+Subject: [PATCH 0017] Fix multi-tile touch confirmation orientation
+
+Purpose: Make the second touch/Pencil tap confirm Granaries, Bazaars, and other
+multi-tile buildings within the visible footprint instead of accumulating
+several camera-orientation transforms through switch fallthrough.
+Upstream status: downstream correctness fix derived against Akhenaten's own
+tile2i seam and checked against the Augustus reference behavior.
+Affected platforms: shared touch confirmation only; mouse placement, building
+rules, costs, previews, Pencil identification, and gesture timing are unchanged.
+Tests: clean ordered patch reconstruction, repository safety scan, iOS
+Simulator/device builds and audits, followed by physical iPad placement.
+
+diff --git a/src/widget/widget_city.cpp b/src/widget/widget_city.cpp
+--- a/src/widget/widget_city.cpp
++++ b/src/widget/widget_city.cpp
+@@ -1075,10 +1075,15 @@ static bool has_confirmed_construction(tile2i ghost, tile2i point, int range_size) {
+     switch (g_camera.orientation) {
+     case DIR_0_TOP_RIGHT:
+         point.shift(-range_size + 1, -range_size + 1);
++        break;
+     case DIR_2_BOTTOM_RIGHT:
+         point.shift(0, -range_size + 1);
++        break;
+     case DIR_6_TOP_LEFT:
+         point.shift(-range_size + 1, 0);
++        break;
++    default:
++        break;
+     }
+     //    tile_offset = point.grid_offset();
+ 

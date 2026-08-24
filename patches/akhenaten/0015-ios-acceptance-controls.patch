@@ -1,0 +1,210 @@
+From 0000000000000000000000000000000000000015 Mon Sep 17 00:00:00 2001
+Subject: [PATCH 0015] Make iPad configuration and build cancellation predictable
+
+Purpose: Keep normal iOS launches in the game, expose the engine feature menu
+from the native controls, default crisp scaling on, and make touch/Pencil build
+cancellation leave the selected tool in one deliberate action.
+Upstream status: downstream Apple product patch.
+Affected platforms: iOS/iPadOS only; the shared cancel helper is inert unless
+called by the iOS-specific paths.
+Tests: clean ordered patch reconstruction, repository safety scan, iOS
+Simulator/device builds and app audits, followed by physical iPad acceptance.
+
+diff --git a/src/building/construction/build_planner.h b/src/building/construction/build_planner.h
+--- a/src/building/construction/build_planner.h
++++ b/src/building/construction/build_planner.h
+@@ -170,6 +170,7 @@
+     void construction_update(tile2i tile);
+     bool construction_active() const { return build_type != BUILDING_NONE; }
+     void construction_cancel(bool release_sidebar = true);
++    void construction_cancel_all(bool release_sidebar = true);
+     void construction_finalize();
+ 
+     void add_building_tiles_from_list(int building_id, bool graphics_only);
+diff --git a/src/building/construction/build_planner.cpp b/src/building/construction/build_planner.cpp
+--- a/src/building/construction/build_planner.cpp
++++ b/src/building/construction/build_planner.cpp
+@@ -283,8 +283,8 @@
+     events::subscribe([this] (event_city_building_mode ev) {
+         e_building_type btype = (e_building_type)ev.value;
+ #if defined(GAME_PLATFORM_IOS)
+-        if (touch_pencil_mode() && btype != BUILDING_NONE && btype == build_type) {
+-            construction_cancel(false);
++        if (btype != BUILDING_NONE && btype == build_type) {
++            construction_cancel_all(false);
+             return;
+         }
+ #endif
+@@ -1005,6 +1005,13 @@
+     update_orientations();
+ }
+ 
++void build_planner::construction_cancel_all(bool release_sidebar) {
++    construction_cancel(release_sidebar);
++    if (construction_active()) {
++        construction_cancel(release_sidebar);
++    }
++}
++
+ void build_planner::construction_update(tile2i tile) {
+     end = tile;
+     if (!end.valid()) {
+diff --git a/src/widget/widget_city.cpp b/src/widget/widget_city.cpp
+--- a/src/widget/widget_city.cpp
++++ b/src/widget/widget_city.cpp
+@@ -1139,7 +1139,11 @@
+         return false;
+     }
+ 
++#if defined(GAME_PLATFORM_IOS)
++    g_city_planner.construction_cancel_all();
++#else
+     g_city_planner.construction_cancel();
++#endif
+     return true;
+ }
+ 
+@@ -1218,7 +1222,11 @@
+         g_scroll.drag_end();
+         capture_input = false;
+         if (type != BUILDING_NONE) {
++#if defined(GAME_PLATFORM_IOS)
++            g_city_planner.construction_cancel_all();
++#else
+             g_city_planner.construction_cancel();
++#endif
+         } else if (allow_building_info(tile)) {
+             events::emit(event_show_tile_info{ tile, false, SOURCE_LOCATION });
+         }
+@@ -1303,7 +1311,11 @@
+         g_scroll.drag_end();
+         capture_input = false;
+         if (g_city_planner.build_type != BUILDING_NONE) {
++#if defined(GAME_PLATFORM_IOS)
++            g_city_planner.construction_cancel_all();
++#else
+             g_city_planner.construction_cancel();
++#endif
+         } else if (allow_building_info(tile)) {
+             events::emit(event_show_tile_info{ tile, false, SOURCE_LOCATION });
+         }
+diff --git a/src/platform/akhenaten.cpp b/src/platform/akhenaten.cpp
+--- a/src/platform/akhenaten.cpp
++++ b/src/platform/akhenaten.cpp
+@@ -328,8 +328,9 @@
+                                    && !innoextract::installer_pending_bootstrap().empty()
+                                    && !innoextract::has_pharaoh_data(g_args.get_data_directory().c_str());
+     bool options_window_shown = false;
+-    if (support_window_options
+-        && (g_args.should_show_startup_config_window() || pending_installer)) {
++    const bool show_startup_options = !platform.is_ios()
++        && (g_args.should_show_startup_config_window() || pending_installer);
++    if (support_window_options && show_startup_options) {
+         show_options_window(g_args);
+         options_window_shown = true;
+     }
+diff --git a/src/platform/platform_ios_overlay.mm b/src/platform/platform_ios_overlay.mm
+--- a/src/platform/platform_ios_overlay.mm
++++ b/src/platform/platform_ios_overlay.mm
+@@ -12,8 +12,10 @@
+ 
+ #include "game/game_events.h"
+ #include "game/game_config.h"
++#include "building/construction/build_planner.h"
+ #include "input/hotkey.h"
+ #include "platform/renderer.h"
++#include "window/autoconfig_window.h"
+ 
+ namespace ios_overlay {
+ 
+@@ -129,7 +131,7 @@
+     root.backgroundColor = UIColor.systemBackgroundColor;
+     root.layoutMargins = UIEdgeInsetsMake(14, 14, 14, 14);
+     self.view = root;
+-    self.preferredContentSize = CGSizeMake(340, 296);
++    self.preferredContentSize = CGSizeMake(340, 356);
+ 
+     UILabel *title = [UILabel new];
+     title.text = @"Game controls";
+@@ -152,6 +154,12 @@
+     UIButton *help = [self controlButtonWithTitle:@"Touch help"
+                                            action:@selector(showHelp)
+                                        identifier:@"emeraldtablet.help"];
++    UIButton *cancelBuild = [self controlButtonWithTitle:@"Cancel build tool"
++                                                  action:@selector(cancelBuildTool)
++                                              identifier:@"emeraldtablet.cancel-build"];
++    UIButton *gameOptions = [self controlButtonWithTitle:@"Game options"
++                                                  action:@selector(showGameOptions)
++                                              identifier:@"emeraldtablet.game-options"];
+     UIButton *done = [self controlButtonWithTitle:@"Done"
+                                            action:@selector(done)
+                                        identifier:@"emeraldtablet.done"];
+@@ -168,7 +176,12 @@
+     secondary.spacing = 8;
+     secondary.distribution = UIStackViewDistributionFillEqually;
+ 
+-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, speed, pause, _crispButton, secondary]];
++    UIStackView *options = [[UIStackView alloc] initWithArrangedSubviews:@[cancelBuild, gameOptions]];
++    options.axis = UILayoutConstraintAxisHorizontal;
++    options.spacing = 8;
++    options.distribution = UIStackViewDistributionFillEqually;
++
++    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, speed, pause, _crispButton, options, secondary]];
+     stack.translatesAutoresizingMaskIntoConstraints = NO;
+     stack.axis = UILayoutConstraintAxisVertical;
+     stack.spacing = 12;
+@@ -205,6 +218,19 @@
+     g_render.set_crisp_scaling(enabled);
+     [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"emeraldtablet.crisp-scaling"];
+     [self updateCrispButton];
++}
++
++- (void)cancelBuildTool {
++    if (g_city_planner.construction_active()) {
++        g_city_planner.construction_cancel_all();
++    }
++}
++
++- (void)showGameOptions {
++    [self dismissViewControllerAnimated:YES completion:^{
++        ios_overlay::g_controls_controller = nil;
++        autoconfig_window::show("window_features");
++    }];
+ }
+ 
+ - (void)showHelp {
+@@ -215,9 +241,9 @@
+                                                     @"Drag: pan the map\n"
+                                                     @"Two-finger drag: pan while building\n"
+                                                     @"Pinch: zoom\n"
+-                                                    @"Finger hold or two-finger tap: inspect, cancel, or go back\n\n"
++                                                    @"Finger hold or two-finger tap: fully cancel the selected build tool, inspect, or go back\n\n"
+                                                     @"PENCIL MODE (Options)\n"
+-                                                    @"Pencil selects and places; fingers only navigate. Tap the selected build tool again to cancel it. Two-finger tap also cancels; configured Pencil double-tap or squeeze performs the secondary action.\n\n"
++                                                    @"Pencil selects and places; fingers only navigate. Tap the selected build tool again to cancel it. The Game controls menu also has Cancel build tool; configured Pencil double-tap or squeeze performs the secondary action.\n\n"
+                                                     @"QUICK START\n"
+                                                     @"Play Pharaoh/Cleopatra → New Family → Predynastic → Nubt. Build housing beside the Kingdom road, connect it with roads, then add water and food as the mission asks."
+                                      preferredStyle:UIAlertControllerStyleAlert];
+@@ -294,14 +320,20 @@
+             return;
+         }
+ 
+-        const bool crisp = [[NSUserDefaults standardUserDefaults] boolForKey:@"emeraldtablet.crisp-scaling"];
++        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
++        NSString *crispDefaultKey = @"emeraldtablet.crisp-scaling-default-v1";
++        if (![defaults boolForKey:crispDefaultKey]) {
++            [defaults setBool:YES forKey:@"emeraldtablet.crisp-scaling"];
++            [defaults setBool:YES forKey:crispDefaultKey];
++        }
++        const bool crisp = [defaults boolForKey:@"emeraldtablet.crisp-scaling"];
+         g_render.set_crisp_scaling(crisp);
+ 
+         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+         button.translatesAutoresizingMaskIntoConstraints = NO;
+         button.accessibilityIdentifier = @"emeraldtablet.overlay-menu";
+         button.accessibilityLabel = @"Game controls";
+-        button.accessibilityHint = @"Pause, speed, crisp scaling, and touch help";
++        button.accessibilityHint = @"Pause, speed, crisp scaling, build cancellation, game options, and touch help";
+         button.tintColor = UIColor.whiteColor;
+         button.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.55];
+         button.layer.cornerRadius = 8;

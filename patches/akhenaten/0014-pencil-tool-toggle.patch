@@ -1,0 +1,61 @@
+From: Emerald Tablet downstream
+Subject: [PATCH 0014] Toggle the selected construction tool with Pencil
+
+On iPad, Pencil mode is useful for precise selection and placement, but a
+selected construction tool is difficult to dismiss using only the Pencil.
+The existing Pencil hold and side-action paths are not reliable enough in
+physical use, while the two-finger cancel fallback requires changing grip.
+
+Keep the change local to iOS Pencil mode: selecting the already-active
+construction type cancels it instead of arming it again.  This makes a second
+Pencil tap on Housing, Road, or another selected tool return to navigation.
+Traditional touch, desktop input, and placement taps on the map are unchanged.
+
+---
+ src/building/construction/build_planner.cpp | 7 +++++++
+ src/platform/platform_ios_overlay.mm        | 4 ++--
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/building/construction/build_planner.cpp b/src/building/construction/build_planner.cpp
+index 5d7dbe4..bbcfad5 100644
+--- a/src/building/construction/build_planner.cpp
++++ b/src/building/construction/build_planner.cpp
+@@ -58,6 +58,7 @@
+ #include "grid/road_access.h"
+ #include "grid/routing/routing.h"
+ #include "game/game_config.h"
++#include "input/touch.h"
+ #include "routed.h"
+ #include "city/city.h"
+ #include "js/js_game.h"
+@@ -281,5 +282,11 @@ void build_planner::init() {
+     events::subscribe([this] (event_city_building_mode ev) {
+         e_building_type btype = (e_building_type)ev.value;
++#if defined(GAME_PLATFORM_IOS)
++        if (touch_pencil_mode() && btype != BUILDING_NONE && btype == build_type) {
++            construction_cancel(false);
++            return;
++        }
++#endif
+         if (ev.value == BUILDING_NONE) {
+             construction_cancel(false);
+         }
+diff --git a/src/platform/platform_ios_overlay.mm b/src/platform/platform_ios_overlay.mm
+index 6be1822..2d760ad 100644
+--- a/src/platform/platform_ios_overlay.mm
++++ b/src/platform/platform_ios_overlay.mm
+@@ -215,10 +215,10 @@
+                                                     @"Tap: select or place\n"
+                                                     @"Drag: pan the map\n"
+                                                     @"Two-finger drag: pan while building\n"
+                                                     @"Pinch: zoom\n"
+-                                                    @"Hold or two-finger tap: inspect, cancel, or go back\n\n"
++                                                    @"Finger hold or two-finger tap: inspect, cancel, or go back\n\n"
+                                                     @"PENCIL MODE (Options)\n"
+-                                                    @"Pencil selects and places; fingers only navigate. Hold the Pencil, double-tap its side, or squeeze to cancel/go back.\n\n"
++                                                    @"Pencil selects and places; fingers only navigate. Tap the selected build tool again to cancel it. Two-finger tap also cancels; configured Pencil double-tap or squeeze performs the secondary action.\n\n"
+                                                     @"QUICK START\n"
+                                                     @"Play Pharaoh/Cleopatra → New Family → Predynastic → Nubt. Build housing beside the Kingdom road, connect it with roads, then add water and food as the mission asks."
+                                      preferredStyle:UIAlertControllerStyleAlert];
+-- 
+2.50.1

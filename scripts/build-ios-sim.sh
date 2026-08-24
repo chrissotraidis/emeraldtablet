@@ -10,6 +10,8 @@ BUILD_CONFIG="${IOS_BUILD_CONFIG:-RelWithDebInfo}"
 DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET:-15.0}"
 ARCHS="${IOS_ARCHS:-arm64}"
 LOG_PATH="${BUILD_LOG:-$BUILD_DIR/build.log}"
+ICON_SOURCE="$ROOT_DIR/assets/ios/AppIcon.png"
+ICON_DEST="$ENGINE_DIR/res/ios/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
 
 if [[ ! -f "$ENGINE_DIR/CMakeLists.txt" ]]; then
     echo "Akhenaten submodule is missing. Run: git submodule update --init engines/akhenaten" >&2
@@ -17,6 +19,20 @@ if [[ ! -f "$ENGINE_DIR/CMakeLists.txt" ]]; then
 fi
 
 "$ROOT_DIR/scripts/apply-patches.sh"
+
+if [[ ! -f "$ICON_SOURCE" ]]; then
+    echo "Missing iOS app icon: $ICON_SOURCE" >&2
+    exit 1
+fi
+if [[ "$(sips -g pixelWidth -g pixelHeight "$ICON_SOURCE" 2>/dev/null | awk '/pixelWidth:/{w=$2} /pixelHeight:/{h=$2} END{print w "x" h}')" != "1024x1024" ]]; then
+    echo "iOS app icon must be 1024x1024." >&2
+    exit 1
+fi
+if sips -g hasAlpha "$ICON_SOURCE" 2>/dev/null | grep -q 'yes'; then
+    echo "iOS app icon must be opaque." >&2
+    exit 1
+fi
+cp -f "$ICON_SOURCE" "$ICON_DEST"
 
 if ! xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>&1; then
     echo "iPhone Simulator SDK is not available. Install Xcode and its iOS platform." >&2

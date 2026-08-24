@@ -1,0 +1,80 @@
+From: Emerald Tablet <emeraldtablet@local>
+Subject: [PATCH] saves: allow one temple complex for each god
+Purpose: Prevent original and Akhenaten save loading from exhausting the temple-complex decorative-tile pool when a city contains all five legal unique complexes.
+Affected platforms: All Akhenaten platforms.
+Upstream status: Suitable to upstream; the fix is generic and includes a synthetic regression with no proprietary save fixture.
+Tests: 182_temple_complex_pool creates all five complexes and proves an Akhenaten save/reload; two private original-game saves also load locally but are neither referenced as fixtures nor distributed.
+Reason: The pool capacity was two even though Pharaoh allows one unique complex for each of five gods, causing ipool::allocate_item to abort during post-load reconstruction.
+
+diff --git a/src/building/building_temple_complex.h b/src/building/building_temple_complex.h
+index 949a55ad6..b123e6e97 100644
+--- a/src/building/building_temple_complex.h
++++ b/src/building/building_temple_complex.h
+@@ -12,7 +12,9 @@ enum e_temple_compex_upgrade : uint8_t {
+ 
+ class building_temple_complex : public building_impl {
+     using decoraive_tiles_t = svector<int, 128>;
+-    using decoraive_tiles_pool_t = mission_permanent_memory_pool<building_temple_complex::decoraive_tiles_t, 2>;
++    // Pharaoh allows one unique temple complex for each of the five gods.
++    // Original saves may therefore contain all five complexes at once.
++    using decoraive_tiles_pool_t = mission_permanent_memory_pool<building_temple_complex::decoraive_tiles_t, 5>;
+ 
+ public:
+     using inherited = building_impl;
+@@ -129,4 +131,4 @@ public:
+     virtual e_overlay get_overlay() const override { return OVERLAY_RELIGION_BAST; }
+     virtual const base_params_t &base_params() const override { return static_cast<const base_params_t &>(current_params()); }
+ };
+-ANK_CONFIG_STRUCT(building_temple_complex_bast::static_params, allowed_altar, allowed_oracle)
+\ No newline at end of file
++ANK_CONFIG_STRUCT(building_temple_complex_bast::static_params, allowed_altar, allowed_oracle)
+diff --git a/tests/182_temple_complex_pool.js b/tests/182_temple_complex_pool.js
+new file mode 100644
+index 000000000..a4241f7c0
+--- /dev/null
++++ b/tests/182_temple_complex_pool.js
+@@ -0,0 +1,44 @@
++// A city may contain one unique temple complex for each of the five gods.
++// Creating and reloading all five must not exhaust the decorative-tile pool.
++
++var __test182_save = "test_182_temple_complex_pool.svx"
++var __test182_ok = false
++
++function run_test() {
++    test_reload_city_session("data/default.map")
++
++    var types = [
++        BUILDING_TEMPLE_COMPLEX_OSIRIS,
++        BUILDING_TEMPLE_COMPLEX_RA,
++        BUILDING_TEMPLE_COMPLEX_PTAH,
++        BUILDING_TEMPLE_COMPLEX_SETH,
++        BUILDING_TEMPLE_COMPLEX_BAST,
++    ]
++
++    for (var i = 0; i < types.length; i++) {
++        var bid = __test_building_create(types[i], 20 + i * 14, 20)
++        if (!bid) {
++            __log_info_native("[test:182] failed to create temple complex index=" + i)
++            __test_signal_ready()
++            return
++        }
++    }
++
++    if (!__game_write_savegame(__test182_save) || !__game_load_savegame(__test182_save)) {
++        __log_info_native("[test:182] five-complex save/load failed")
++        __test_signal_ready()
++        return
++    }
++
++    __log_marker("temple_complex_pool_five_saveload_ok")
++    __test182_ok = true
++    __test_signal_ready()
++}
++
++function check_valid() {
++    if (!__test182_ok) {
++        __log_info_native("[test:182] completion flag was not preserved")
++        return false
++    }
++    return true
++}

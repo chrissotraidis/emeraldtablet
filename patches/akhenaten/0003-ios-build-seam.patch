@@ -304,7 +304,7 @@ new file mode 100644
 index 000000000..92e0cf2a3
 --- /dev/null
 +++ b/res/ios/Info.plist
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,48 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 +<plist version="1.0">
@@ -328,6 +328,10 @@ index 000000000..92e0cf2a3
 +	<key>CFBundleVersion</key>
 +	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
 +	<key>LSRequiresIPhoneOS</key>
++	<true/>
++	<key>LSSupportsOpeningDocumentsInPlace</key>
++	<true/>
++	<key>UIFileSharingEnabled</key>
 +	<true/>
 +	<key>UIRequiresFullScreen</key>
 +	<true/>

@@ -1,6 +1,6 @@
 # Emerald Tablet — goal loop and handoff
 
-Last updated: 2026-08-14 (session continuation).
+Last updated: 2026-08-24.
 
 ## The goal (do not shrink it)
 
@@ -19,9 +19,12 @@ class (clean build, package, install, PID, authentic gameplay, input, audio,
 save/reload, lifecycle) is separate and present, artifacts are data-free and
 reproducible, and compatibility wording matches measured reality.
 
-Physical G7/G8 are human-only gates (no hardware attached). Never mark them
-passed. Do not mark the goal complete on compile/launch/menu/Simulator evidence
-alone.
+Physical G7/G8 remain human/device gates. G7 is open because no iPhone has been
+attached. G8 is partial: the current iPad build has physical acceptance for
+Pencil movement, construction/cancellation, game-speed controls, representative
+one- and multi-tile placement, and Save Game flow. Do not extend those results
+to audible output, lifecycle interruption, sustained performance, or broader
+campaign play without separate evidence.
 
 ## The loop (repeat every turn)
 
@@ -29,7 +32,7 @@ alone.
    `AGENTS.md`. Preserve the original goal; never shrink it to an easier subset.
 2. **Audit current state**: `git status`, engine pin
    (`engines/akhenaten` = `38cb947ead3895408ea32f74fda6e37921a42bd3`), patch
-   queue (`patches/akhenaten/0001..0006`), latest STATE.md experiments, and the
+   queue (`patches/akhenaten/0001..0017`), latest STATE.md experiments, and the
    live Simulator/desktop state (`xcrun simctl list`, `pgrep`, `osascript`
    window bounds). Work from current evidence, not memory.
 3. **Pick the next single gate/step** from the priority queue below. Do not
@@ -58,7 +61,7 @@ alone.
 | 3 | G4 remainder: 30 bg/fg cycles, lifecycle UI load, manual-save preservation, update survival, low-space preflight | G4 | DONE 2026-08-15 |
 | 4 | G6 subset: compat matrix + save directionality + flake audit | G6 | DONE 2026-08-15 |
 | 5 | G9: dmg, IPA, manifests, checksums, notices, docs, verifier | G9 | DONE 2026-08-15 (local artifacts) |
-| 6 | Physical G7/G8, hosted release, legal review | HUMAN | not started (no hardware/authority) |
+| 6 | Physical G7/G8, hosted release, legal review | HUMAN | G8 partial and current control/placement slice accepted; G7 and remaining hardware/release gates open |
 
 ## Current gate state (verified 2026-08-14)
 
@@ -71,7 +74,7 @@ alone.
 | G4 iPhone lifecycle | CORE DONE — background → pause + lifecycle.svx autosave measured, survives relaunch. Remains: 20 cycles, UI load of lifecycle save, manual-save preservation, import-interrupt/low-storage, update survival |
 | G5 iPad + Pencil shell | CORE PASS — mini/11"/13" proven |
 | G6 subset / G9 | CORE DONE (developer-preview subset + local artifacts) |
-| G7/G8 physical | HUMAN GATE — no iPhone/iPad/Pencil attached |
+| G7/G8 physical | G7 HUMAN/OPEN; G8 PARTIAL — current iPad construction, cancellation, Pencil movement, speed controls, and Save Game flow physically accepted |
 
 ## Environment facts (verify live, don't trust stale values)
 
@@ -96,7 +99,7 @@ alone.
   `osascript` AXRaise on the target window before tapping. Sky coordinates are
   window-relative; `simctl io ... screenshot` gives device-accurate pixels.
 
-## Patch queue (validated clean-apply 0001→0006)
+## Patch queue (validated clean-apply 0001→0017)
 
 - `0001-macos-propagate-deployment-target.patch` — minos 11.7 across deps.
 - `0002-macos-curl-secure-transport.patch` — Secure Transport for curl.
@@ -108,6 +111,14 @@ alone.
   the fixed 1024x768 logical view fills each iPad.
 - `0006-ios-native-overlay-menu.patch` — native iOS "⋮" control overlay
   (pause, speed +/−, touch help) pinned to the top-right safe area.
+- `0007`-`0009` — physical-iPad usability, refined input, local mod import,
+  presentation defaults, and the persistent native control popover.
+- `0010`-`0012` — isolated save-loader/legacy compatibility repairs with
+  explicit support boundaries.
+- `0013`-`0015` — complete construction cancellation and Pencil/touch tool
+  exit behavior, plus direct iOS game startup and in-engine options access.
+- `0016` — independent two-finger pan tuning and the live game-speed display.
+- `0017` — correct multi-tile confirmation at every camera orientation.
 
 `scripts/apply-patches.sh` reverse-applies and re-applies the queue on a clean
 pinned engine. Build scripts: `scripts/build-macos.sh`,

@@ -1,0 +1,138 @@
+From: Emerald Tablet <emeraldtablet@local>
+Subject: [PATCH] saves: tolerate stale legacy trader links on cleanup
+Purpose: Prevent original Pharaoh saves from crashing on the first simulation tick when a stale trade ship or caravan is deleted.
+Affected platforms: All Akhenaten platforms.
+Upstream status: Suitable to upstream; the fix is generic and includes a synthetic regression with no proprietary save fixture.
+Tests: 183_legacy_trader_cleanup deletes synthetic ship and caravan figures whose legacy city, trader, and dock links are deliberately out of range.
+Reason: Original figure records can contain stale link bytes that do not resolve to current Akhenaten empire cities, trader slots, or buildings. Destruction cleanup dereferenced those values without validation.
+
+diff --git a/src/empire/empire_city.cpp b/src/empire/empire_city.cpp
+index 9991a1603..8161783f1 100644
+--- a/src/empire/empire_city.cpp
++++ b/src/empire/empire_city.cpp
+@@ -251,7 +251,9 @@ bool empire_city_handle::sells_resource(e_resource r) const {
+     return ref().sells_resource[r];
+ }
+
+ void empire_city_handle::remove_trader(figure_id fid) {
+-    ref().remove_trader(fid);
++    if (empire_city* city = g_empire.city(handle)) {
++        city->remove_trader(fid);
++    }
+ }
+ 
+ void empire_city_handle::set_under_siege(uint8_t months) {
+diff --git a/src/figuretype/figure_trader_ship.cpp b/src/figuretype/figure_trader_ship.cpp
+index c3c1a58cf..1dc197952 100644
+--- a/src/figuretype/figure_trader_ship.cpp
++++ b/src/figuretype/figure_trader_ship.cpp
+@@ -216,15 +216,17 @@ void figure_trade_ship::on_destroy() {
+     empire_city().remove_trader(id());
+ 
+     // Release the empire-side trader slot. complete_trade() only fires when state
+-    // reaches estate_returning_home — if the ship dies via kill(), demolished dock,
+-    // or any path that skips back_to_city(), is_active stays true forever and the
+-    // route fills up to its 2-trader cap with ghosts.
+-    auto& trader = g_empire_traders.traders[runtime_data().trader.handle];
+-    trader.is_active = false;
++    // reaches estate_returning_home. Use the manager's lookup so stale legacy-save
++    // handles cannot index past the fixed trader table.
++    g_empire_traders.remove_trader(runtime_data().trader.handle);
+ 
+     // Release the dock slot. Otherwise the next ship is rejected by
+     // map_get_free_destination_dock (trade_ship != 0 with a dead figure id).
+-    auto* dock = destination()->dcast_dock();
++    building_dock* dock = nullptr;
++    const building_id destination_id = base.destinationID();
++    if (destination_id > 0 && destination_id < MAX_BUILDINGS) {
++        dock = destination()->dcast_dock();
++    }
+     if (dock && dock->runtime_data().trade_ship == id()) {
+         dock->runtime_data().trade_ship = 0;
+     }
+diff --git a/src/js/js_test_game.cpp b/src/js/js_test_game.cpp
+index 621a46131..1d80e9ca5 100644
+--- a/src/js/js_test_game.cpp
++++ b/src/js/js_test_game.cpp
+@@ -55,6 +55,8 @@
+ #include "figuretype/figure_enemy_elephant.h"
+ #include "figuretype/figure_enemy_spearman.h"
+ #include "figuretype/figure_transport_ship.h"
++#include "figuretype/figure_trader_ship.h"
++#include "figuretype/figure_kingdome_trader.h"
+ #include "figuretype/figure_soldier.h"
+ #include "building/building_transport_wharf.h"
+ #include "figure/combat.h"
+@@ -1083,6 +1085,34 @@ static int __test_figure_create(int type, int x, int y) {
+ }
+ ANK_FUNCTION_3(__test_figure_create);
+ 
++static int __test_legacy_trader_cleanup(int type) {
++    if (type != FIGURE_TRADE_SHIP && type != FIGURE_TRADE_CARAVAN) {
++        return 0;
++    }
++
++    const tile2i place(g_scenario.map.width / 2, g_scenario.map.height / 2);
++    figure* f = figure_create((e_figure_type)type, place, DIR_0_TOP_RIGHT);
++    if (!f || !f->is_alive()) {
++        return 0;
++    }
++
++    if (auto* ship = f->dcast()->dcast_trade_ship()) {
++        ship->runtime_data().empire_city = empire_city_handle{ 255 };
++        ship->runtime_data().trader = empire_trader_handle{ 255 };
++        f->destination_building_id = MAX_BUILDINGS + 1;
++    } else if (auto* caravan = f->dcast()->dcast_trade_caravan()) {
++        caravan->runtime_data().empire_city = empire_city_handle{ 255 };
++    } else {
++        return 0;
++    }
++
++    // Direct deletion is intentional here: it invokes the exact destruction
++    // cleanup path that runs when a stale legacy figure dies on the first tick.
++    f->figure_delete_UNSAFE();
++    return f->state == FIGURE_STATE_NONE ? 1 : 0;
++}
++ANK_FUNCTION_1(__test_legacy_trader_cleanup);
++
+ static void __test_figure_set_home(int fid, int bid) {
+     figure *f = figure_get(fid);
+     building *b = building_get(bid);
+diff --git a/tests/183_legacy_trader_cleanup.js b/tests/183_legacy_trader_cleanup.js
+new file mode 100644
+index 000000000..698b1d61b
+--- /dev/null
++++ b/tests/183_legacy_trader_cleanup.js
+@@ -0,0 +1,32 @@
++// Original figure records may contain stale trader links. Deleting those
++// figures must discard invalid links rather than indexing outside live tables.
++
++var __test183_ok = false
++
++function run_test() {
++    test_reload_city_session("data/default.map")
++
++    if (!__test_legacy_trader_cleanup(FIGURE_TRADE_SHIP)) {
++        __log_info_native("[test:183] stale trade ship cleanup failed")
++        __test_signal_ready()
++        return
++    }
++
++    if (!__test_legacy_trader_cleanup(FIGURE_TRADE_CARAVAN)) {
++        __log_info_native("[test:183] stale trade caravan cleanup failed")
++        __test_signal_ready()
++        return
++    }
++
++    __log_marker("legacy_trader_cleanup_ok")
++    __test183_ok = true
++    __test_signal_ready()
++}
++
++function check_valid() {
++    if (!__test183_ok) {
++        __log_info_native("[test:183] completion flag was not preserved")
++        return false
++    }
++    return true
++}

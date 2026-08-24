@@ -1,0 +1,31 @@
+From: Emerald Tablet downstream
+Subject: [PATCH 0013] Keep two-finger cancel available in Pencil mode
+
+Pencil mode makes ordinary finger touches navigation-only so they cannot place
+or select anything.  That filter also disabled the documented two-finger tap
+secondary action, leaving users dependent on a stationary Pencil hold or the
+Pencil side gesture to cancel a selected construction tool.
+
+A two-finger tap is already handled only as a secondary/cancel action.  Allow
+that deliberate gesture in Pencil mode while preserving the existing ban on
+ordinary finger clicks.
+
+---
+ src/input/touch.cpp | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/src/input/touch.cpp b/src/input/touch.cpp
+index 34e7d1e..1593899 100644
+--- a/src/input/touch.cpp
++++ b/src/input/touch.cpp
+@@ -84,7 +84,6 @@ int touch_was_two_finger_tap(void) {
+     const touch_t *first = get_earliest_touch();
+     const touch_t *last = get_latest_touch();
+-    if (!last->in_use || touch_is_navigation_only(first) || touch_is_navigation_only(last)
+-        || last->start_time - first->start_time >= CLICK_TIME
++    if (!last->in_use || last->start_time - first->start_time >= CLICK_TIME
+         || first->has_moved || last->has_moved
+         || first->long_press_handled || last->long_press_handled) {
+         return 0;
+-- 
+2.50.1

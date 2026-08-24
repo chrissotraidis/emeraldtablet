@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000016 Mon Sep 17 00:00:00 2001
+Subject: [PATCH 0016] Refine two-finger pan and expose game speed
+
+Purpose: Halve only two-finger touch panning and its inertia after physical
+iPad acceptance, while keeping accepted Pencil movement unchanged and showing
+the authoritative game-speed percentage in the native controls popover.
+Upstream status: downstream Apple product patch.
+Affected platforms: iOS/iPadOS behavior only; shared drag bookkeeping is inert
+unless the new iOS two-finger source is selected.
+Tests: clean ordered patch reconstruction, repository safety scan, iOS
+Simulator/device builds and app audits, followed by physical iPad acceptance.
+
+diff --git a/src/input/scroll.h b/src/input/scroll.h
+--- a/src/input/scroll.h
++++ b/src/input/scroll.h
+@@ -18,6 +18,7 @@ struct scroll_t {
+         touch = 0,
+         mouse = 1,
+         middle_mouse_pan = 2,
++        two_finger_touch = 3,
+     };
+ 
+     enum class arrow_dir {
+@@ -94,6 +95,7 @@ private:
+     struct drag_t {
+         int active = 0;
+         int is_touch = 0;
++        int is_two_finger_touch = 0;
+         int apply_middle_mouse_pan_speed = 0;
+         int moved = 0;
+         struct {
+diff --git a/src/input/scroll.cpp b/src/input/scroll.cpp
+--- a/src/input/scroll.cpp
++++ b/src/input/scroll.cpp
+@@ -21,10 +21,11 @@ scroll_t g_scroll;
+ 
+ namespace {
+ 
+-double touch_pan_scale() {
++double touch_pan_scale(bool two_finger) {
+ #if defined(GAME_PLATFORM_IOS)
+-    return 0.125;
++    return two_finger ? 0.0625 : 0.125;
+ #else
++    (void)two_finger;
+     return 1.0;
+ #endif
+ }
+@@ -202,6 +203,7 @@ void scroll_t::drag_start(drag_source source) {
+         return;
+     drag.active = 1;
+-    drag.is_touch = (source == drag_source::touch) ? 1 : 0;
++    drag.is_touch = (source == drag_source::touch || source == drag_source::two_finger_touch) ? 1 : 0;
++    drag.is_two_finger_touch = (source == drag_source::two_finger_touch) ? 1 : 0;
+     drag.apply_middle_mouse_pan_speed = (source == drag_source::middle_mouse_pan) ? 1 : 0;
+     drag.moved = 0;
+     drag.delta = {0, 0};
+@@ -242,7 +244,7 @@ int scroll_t::set_speed_from_drag(bool keep_delta) {
+         travel_y = std::abs((int)delta_y);
+     } else {
+         const touch_t* t = get_earliest_touch();
+-        const double scale = touch_pan_scale();
++        const double scale = touch_pan_scale(drag.is_two_finger_touch);
+         delta_x = -t->frame_movement.x * scale;
+         delta_y = -t->frame_movement.y * scale;
+         travel_x = std::abs(t->frame_movement.x);
+@@ -277,12 +279,14 @@ int scroll_t::drag_end() {
+         g_mouse.set_relative_mode(0);
+     else if (has_scrolled) {
+         const touch_t* t = get_earliest_touch();
+-        const double scale = touch_pan_scale();
++        const double scale = touch_pan_scale(drag.is_two_finger_touch);
+         speed_set_target(speed.x, -t->frame_movement.x * scale, SPEED_CHANGE_IMMEDIATE, 1);
+         speed_set_target(speed.y, -t->frame_movement.y * scale, SPEED_CHANGE_IMMEDIATE, 1);
+     }
+-    speed_set_target(speed.x, 0, config.drag_decay_time, 1);
+-    speed_set_target(speed.y, 0, config.drag_decay_time, 1);
++    const int decay_time = drag.is_two_finger_touch ? config.drag_decay_time / 2 : config.drag_decay_time;
++    speed_set_target(speed.x, 0, decay_time, 1);
++    speed_set_target(speed.y, 0, decay_time, 1);
++    drag.is_two_finger_touch = 0;
+ 
+     return has_scrolled;
+ }
+diff --git a/src/widget/widget_city.cpp b/src/widget/widget_city.cpp
+--- a/src/widget/widget_city.cpp
++++ b/src/widget/widget_city.cpp
+@@ -1339,7 +1339,7 @@ bool screen_city_t::handle_last_touch(tile2i tile) {
+         new_start_grid_offset = 0;
+     }
+     g_scroll.restore_margins();
+-    g_scroll.drag_start(scroll_t::drag_source::touch);
++    g_scroll.drag_start(scroll_t::drag_source::two_finger_touch);
+     if (get_earliest_touch()->has_ended || last->has_ended) {
+         g_scroll.drag_end();
+     }
+diff --git a/src/platform/platform_ios_overlay.mm b/src/platform/platform_ios_overlay.mm
+--- a/src/platform/platform_ios_overlay.mm
++++ b/src/platform/platform_ios_overlay.mm
+@@ -78,4 +78,5 @@ void enqueue_pencil_secondary_action();
+ @interface EmeraldTabletControlsController : UIViewController {
+     UIButton *_crispButton;
++    UILabel *_speedLabel;
+ }
+ @end
+@@ -131,13 +132,19 @@ EmeraldTabletControlsController *g_controls_controller = nil;
+     root.backgroundColor = UIColor.systemBackgroundColor;
+     root.layoutMargins = UIEdgeInsetsMake(14, 14, 14, 14);
+     self.view = root;
+-    self.preferredContentSize = CGSizeMake(340, 356);
++    self.preferredContentSize = CGSizeMake(340, 390);
+ 
+     UILabel *title = [UILabel new];
+     title.text = @"Game controls";
+     title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle2];
+     title.textAlignment = NSTextAlignmentCenter;
+ 
++    _speedLabel = [UILabel new];
++    _speedLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
++    _speedLabel.textAlignment = NSTextAlignmentCenter;
++    _speedLabel.accessibilityIdentifier = @"emeraldtablet.game-speed";
++    [self updateSpeedLabel];
++
+     UIButton *slower = [self controlButtonWithTitle:@"Speed −"
+                                              action:@selector(speedDown)
+                                          identifier:@"emeraldtablet.speed-down"];
+@@ -181,7 +188,7 @@ EmeraldTabletControlsController *g_controls_controller = nil;
+     options.spacing = 8;
+     options.distribution = UIStackViewDistributionFillEqually;
+ 
+-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, speed, pause, _crispButton, options, secondary]];
++    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, _speedLabel, speed, pause, _crispButton, options, secondary]];
+     stack.translatesAutoresizingMaskIntoConstraints = NO;
+     stack.axis = UILayoutConstraintAxisVertical;
+     stack.spacing = 12;
+@@ -200,10 +207,25 @@ EmeraldTabletControlsController *g_controls_controller = nil;
+ 
+ - (void)speedUp {
+     events::emit(event_change_gamespeed{true});
++    [self refreshSpeedLabelAfterEvent];
+ }
+ 
+ - (void)speedDown {
+     events::emit(event_change_gamespeed{false});
++    [self refreshSpeedLabelAfterEvent];
+ }
++
++- (void)updateSpeedLabel {
++    const int speed = game_features::gameopt_game_speed.to_int();
++    _speedLabel.text = [NSString stringWithFormat:@"Game speed: %d%%", speed];
++    _speedLabel.accessibilityValue = [NSString stringWithFormat:@"%d percent", speed];
++}
++
++- (void)refreshSpeedLabelAfterEvent {
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)),
++                   dispatch_get_main_queue(), ^{
++        [self updateSpeedLabel];
++    });
++}
+ 
+ - (void)updateCrispButton {

@@ -1,6 +1,6 @@
 From: Emerald Tablet <emeraldtablet@local>
 Subject: [PATCH] macOS: build curl with Secure Transport instead of Homebrew OpenSSL
-Purpose: Stop the macOS app from dynamically linking Homebrew libssl, libcrypto, and libnghttp2.
+Purpose: Stop the macOS app from dynamically linking Homebrew libssl, libcrypto, libnghttp2, and libssh2.
 Affected platforms: macOS
 Upstream status: Suitable to upstream as an Apple-specific curl backend choice. Linux remains on OpenSSL.
 Tests: scripts/audit-macos-app.sh and tests/packaging/test_macos_self_contained.sh fail before this patch when otool shows /opt/homebrew paths.
@@ -10,7 +10,7 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 9bdfdf523..adb197a5e 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -254,6 +254,12 @@ if(NOT WIN_EMSCRIPTEN AND NOT MACOS_X64_BUILD)
+@@ -254,6 +254,13 @@ if(NOT WIN_EMSCRIPTEN AND NOT MACOS_X64_BUILD)
      if(WIN32)
          set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)  # Use Windows Schannel on Windows
          set(CURL_USE_OPENSSL OFF CACHE BOOL "" FORCE)
@@ -20,6 +20,7 @@ index 9bdfdf523..adb197a5e 100644
 +        set(CURL_USE_OPENSSL OFF CACHE BOOL "" FORCE)
 +        set(USE_NGHTTP2 OFF CACHE BOOL "" FORCE)
 +        set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
++        set(CURL_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
      else()
          set(CURL_USE_SCHANNEL OFF CACHE BOOL "" FORCE)
          set(CURL_USE_OPENSSL ON CACHE BOOL "" FORCE)  # Use OpenSSL on Linux/Unix

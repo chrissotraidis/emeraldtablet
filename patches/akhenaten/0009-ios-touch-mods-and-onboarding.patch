@@ -1,0 +1,799 @@
+From 77fefc7fe0e7e24f409bc13456362079313dcd61 Mon Sep 17 00:00:00 2001
+From: Emerald Tablet <emeraldtablet@local>
+Date: Tue, 18 Aug 2026 20:10:00 +0200
+Subject: [PATCH] iOS: refine Pencil, mods, and onboarding
+
+Purpose: Tune physical iPad navigation and text input, make Pencil secondary actions useful across menus, replace the unavailable network mod listing with a Files-based .sgx import, and remove developer-facing UI noise.
+
+Affected platforms: iOS and iPadOS behavior only, apart from inert shared declarations and a corrected localization lookup.
+
+Upstream status: Candidate after physical acceptance; native Pencil, Files, keyboard fallback, and presentation defaults remain Emerald Tablet specific.
+
+Tests: Simulator build, clean patch reconstruction, repository safety scan, app audit, device build, preservation-safe physical iPad install and launch.
+---
+
+--- a/src/content/mods.cpp
++++ b/src/content/mods.cpp
+@@ -11,6 +11,9 @@
+ #include "content/vfs.h"
+ #include "window/popup_dialog.h"
+ #include "platform/platform.h"
++#if defined(GAME_PLATFORM_IOS)
++#include "platform/platform_ios_picker.h"
++#endif
+ #include "core/archive.h"
+ #include "game/game.h"
+ 
+@@ -114,12 +117,20 @@
+ #endif
+ 
+ void mods_download_info_async() {
++#if defined(GAME_PLATFORM_IOS)
++    g_mods.inupdate = true;
++    if (!ios_picker::start_mod_pick()) {
++        g_mods.inupdate = false;
++        popup_dialog::show_ok("Mods", "Finish the current Files import before choosing another mod.");
++    }
++#else
+     game.mt.detach_task([]() {
+         g_mods.inupdate = true;
+         mods_refresh_available_list();
+         g_mods.inupdate = false;
+         events::emit(event_mods_info_updated{static_cast<uint64_t>(g_mods.list.size())});
+     });
++#endif
+ }
+ 
+ void mods_download_mod_async(xstring name) {
+--- a/src/core/keyboard_module.cpp
++++ b/src/core/keyboard_module.cpp
+@@ -6,6 +6,9 @@
+ #include "input/keyboard.h"
+ #include "input/keys.h"
+ #include "core/app.h"
++#if defined(GAME_PLATFORM_IOS)
++#include "platform/platform_ios_overlay.h"
++#endif
+ 
+ #include <SDL.h>
+ 
+@@ -21,6 +24,45 @@
+     return (event->keysym.mod & KMOD_ALT) != 0;
+ }
+ 
++#if defined(GAME_PLATFORM_IOS)
++static bool handle_ios_hardware_text(SDL_KeyboardEvent* event) {
++    if (!g_keyboard.is_capturing() || !ios_overlay::hardware_keyboard_connected()
++        || (event->keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
++        return false;
++    }
++
++    const bool shifted = (event->keysym.mod & KMOD_SHIFT) != 0;
++    const SDL_Keycode key = event->keysym.sym;
++    char text[2] = {};
++    if (key >= SDLK_a && key <= SDLK_z) {
++        text[0] = (char)(shifted ? 'A' + (key - SDLK_a) : 'a' + (key - SDLK_a));
++    } else if (key >= SDLK_0 && key <= SDLK_9) {
++        static constexpr char shifted_digits[] = ")!@#$%^&*(";
++        text[0] = shifted ? shifted_digits[key - SDLK_0] : (char)key;
++    } else {
++        switch (key) {
++        case SDLK_SPACE: text[0] = ' '; break;
++        case SDLK_MINUS: text[0] = shifted ? '_' : '-'; break;
++        case SDLK_EQUALS: text[0] = shifted ? '+' : '='; break;
++        case SDLK_LEFTBRACKET: text[0] = shifted ? '{' : '['; break;
++        case SDLK_RIGHTBRACKET: text[0] = shifted ? '}' : ']'; break;
++        case SDLK_BACKSLASH: text[0] = shifted ? '|' : '\\'; break;
++        case SDLK_SEMICOLON: text[0] = shifted ? ':' : ';'; break;
++        case SDLK_QUOTE: text[0] = shifted ? '"' : '\''; break;
++        case SDLK_COMMA: text[0] = shifted ? '<' : ','; break;
++        case SDLK_PERIOD: text[0] = shifted ? '>' : '.'; break;
++        case SDLK_SLASH: text[0] = shifted ? '?' : '/'; break;
++        default: break;
++        }
++    }
++    if (!text[0]) {
++        return false;
++    }
++    g_keyboard.set_text(text);
++    return true;
++}
++#endif
++
+ e_key_mode keyboard_module_t::get_modifier(int mod) {
+     int key_mod = KEY_MOD_NONE;
+     if (mod & KMOD_SHIFT)
+@@ -99,6 +141,16 @@
+ #endif
+     }
+ 
++#if defined(GAME_PLATFORM_IOS)
++    // SDL's iOS backend stops producing SDL_TEXTINPUT when its hidden text
++    // responder is disabled to keep the software keyboard bar off-screen.
++    // Preserve printable input from an attached keyboard only while an engine
++    // text field is actively capturing it.
++    if (handle_ios_hardware_text(event)) {
++        return;
++    }
++#endif
++
+     // handle hotkeys
+     if (game.debug_console) {
+         return;
+@@ -154,5 +206,3 @@
+     g_app.register_keyboard_event_handler([&](void* ev) { kb.handle_key_up((SDL_Event*)ev); });
+     g_app.register_keyboard_event_handler([&](void* ev) { kb.handle_text((SDL_Event*)ev); });
+ }
+-
+-
+--- a/src/graphics/view/zoom.cpp
++++ b/src/graphics/view/zoom.cpp
+@@ -4,6 +4,7 @@
+ #include "graphics/elements/menu.h"
+ #include "game/game_config.h"
+ #include "lookup.h"
++#include "platform/platform.h"
+ #include "view.h"
+ #include "js/js_game.h"
+ #include <cmath>
+@@ -40,6 +41,13 @@
+     }
+ 
+     int finger_distance_percentage = calc_percentage(current_distance, original_distance);
++#if defined(GAME_PLATFORM_IOS)
++    // Physical trackpad/finger testing found the direct pinch ratio slightly
++    // too aggressive. Keep the gesture centered at 100% while reducing only
++    // the distance from that neutral point.
++    finger_distance_percentage = 100
++        + (int)std::lround((finger_distance_percentage - 100) * 0.85f);
++#endif
+     touch.current_zoom = calc_percentage(touch.start_zoom, finger_distance_percentage);
+ }
+ 
+--- a/src/input/input.cpp
++++ b/src/input/input.cpp
+@@ -2,10 +2,13 @@
+ 
+ #include "input/hotkey.h"
+ #include "input/mouse.h"
++#include "input/touch.h"
+ #include "js/js_game.h"
+ 
+ int input_go_back_requested(const mouse* m, const hotkeys* h) {
+-    return m->right.went_up || (m->is_touch && m->left.double_click) || h->escape_pressed;
++    return m->right.went_up
++        || (m->is_touch && (m->left.double_click || touch_poll_long_press()))
++        || h->escape_pressed;
+ }
+ 
+ int __input_go_back_requested() {
+--- a/src/input/scroll.cpp
++++ b/src/input/scroll.cpp
+@@ -22,7 +22,7 @@
+ 
+ double touch_pan_scale() {
+ #if defined(GAME_PLATFORM_IOS)
+-    return 0.25;
++    return 0.125;
+ #else
+     return 1.0;
+ #endif
+--- a/src/input/touch.cpp
++++ b/src/input/touch.cpp
+@@ -5,7 +5,7 @@
+ #include <stdlib.h>
+ 
+ #define CLICK_TIME 300
+-#define LONG_PRESS_TIME 350
++#define LONG_PRESS_TIME 700
+ #define NOT_MOVING_RANGE 5
+ #define SCROLL_FINGER_RADIUS 25
+ #define TWO_FINGER_PAN_ACTIVATION 16
+--- a/src/platform/platform_ios.cpp
++++ b/src/platform/platform_ios.cpp
+@@ -4,12 +4,15 @@
+ 
+ #include "platform/arguments.h"
+ #include "platform/platform_ios_overlay.h"
++#include "platform/platform_ios_picker.h"
+ #include "core/bstring.h"
+ #include "core/log.h"
++#include "content/mods.h"
+ #include "game/game.h"
+ #include "game/game_config.h"
+ #include "io/gamestate/boilerplate.h"
+ #include "window/window_city.h"
++#include "window/popup_dialog.h"
+ 
+ #include <SDL.h>
+ 
+@@ -79,8 +82,30 @@
+ }
+ 
+ void platform_run_per_frame_callback() {
++    ios_overlay::apply_product_defaults();
+     // Keep the touch layer in sync with the configurable Pencil mode.
+     touch_set_pencil_mode(game_features::gameui_pencil_mode.to_bool() ? 1 : 0);
++
++    std::string imported_mod;
++    std::string mod_error;
++    if (ios_picker::take_mod_result(imported_mod, mod_error)) {
++        mods_init();
++        mods_load();
++        g_mods.inupdate = false;
++        events::emit(event_mods_info_updated{static_cast<uint64_t>(g_mods.list.size())});
++        xstring message;
++        message.printf("Imported %s. Double tap it in the list to enable it.", imported_mod.c_str());
++        popup_dialog::show_ok("Mod imported", message);
++    } else if (!mod_error.empty()) {
++        g_mods.inupdate = false;
++        events::emit(event_mods_info_updated{static_cast<uint64_t>(g_mods.list.size())});
++        popup_dialog::show_ok("Mod import", mod_error.c_str());
++    } else if (g_mods.inupdate && !ios_picker::is_active()) {
++        // A cancelled Files picker has no error message but still completes
++        // the import state machine.
++        g_mods.inupdate = false;
++        events::emit(event_mods_info_updated{static_cast<uint64_t>(g_mods.list.size())});
++    }
+ }
+ 
+ int platform_poll_event(CoreEvent* event) {
+--- a/src/platform/platform_ios_overlay.h
++++ b/src/platform/platform_ios_overlay.h
+@@ -13,6 +13,10 @@
+ // Remove the overlay button (used on teardown).
+ void remove_overlay();
+ 
++// Apply Emerald Tablet's one-time iOS presentation defaults after the game
++// configuration has loaded. Users can still re-enable these options later.
++void apply_product_defaults();
++
+ // Public iPadOS hardware-keyboard state used to avoid raising the software
+ // keyboard while preserving SDL text input events.
+ bool hardware_keyboard_connected();
+--- a/src/platform/platform_ios_overlay.mm
++++ b/src/platform/platform_ios_overlay.mm
+@@ -11,6 +11,7 @@
+ #include <SDL_syswm.h>
+ 
+ #include "game/game_events.h"
++#include "game/game_config.h"
+ #include "input/hotkey.h"
+ #include "platform/renderer.h"
+ 
+@@ -20,6 +21,7 @@
+ 
+ // Forward declaration so the ObjC target can reach the C++ controls helper.
+ void show_controls(UIButton *source);
++void enqueue_pencil_secondary_action();
+ 
+ } // namespace
+ 
+@@ -35,6 +37,39 @@
+ }
+ @end
+ 
++@interface EmeraldTabletPencilTarget : NSObject <UIPencilInteractionDelegate>
++@end
++
++@implementation EmeraldTabletPencilTarget
++
++- (void)performPreferredAction:(UIPencilPreferredAction)action {
++    if (action != UIPencilPreferredActionIgnore) {
++        ios_overlay::enqueue_pencil_secondary_action();
++    }
++}
++
++- (void)pencilInteractionDidTap:(UIPencilInteraction *)interaction {
++    (void)interaction;
++    [self performPreferredAction:UIPencilInteraction.preferredTapAction];
++}
++
++- (void)pencilInteraction:(UIPencilInteraction *)interaction
++             didReceiveTap:(UIPencilInteractionTap *)tap API_AVAILABLE(ios(17.5)) {
++    (void)interaction;
++    (void)tap;
++    [self performPreferredAction:UIPencilInteraction.preferredTapAction];
++}
++
++- (void)pencilInteraction:(UIPencilInteraction *)interaction
++         didReceiveSqueeze:(UIPencilInteractionSqueeze *)squeeze API_AVAILABLE(ios(17.5)) {
++    (void)interaction;
++    if (squeeze.phase == UIPencilInteractionPhaseEnded) {
++        [self performPreferredAction:UIPencilInteraction.preferredSqueezeAction];
++    }
++}
++
++@end
++
+ @interface EmeraldTabletControlsController : UIViewController {
+     UIButton *_crispButton;
+ }
+@@ -174,13 +209,17 @@
+ 
+ - (void)showHelp {
+     UIAlertController *help =
+-        [UIAlertController alertControllerWithTitle:@"Touch controls"
+-                                            message:@"Tap: select and press controls\n"
+-                                                    @"Drag one finger: pan the map at a controlled speed\n"
+-                                                    @"Drag two fingers: pan while building\n"
+-                                                    @"Pinch two fingers: zoom\n"
+-                                                    @"Long press or two-finger tap: inspect / cancel\n\n"
+-                                                    @"Pencil mode (Options): Pencil selects and places; fingers only pan and zoom."
++        [UIAlertController alertControllerWithTitle:@"Touch controls & quick start"
++                                            message:@"TOUCH\n"
++                                                    @"Tap: select or place\n"
++                                                    @"Drag: pan the map\n"
++                                                    @"Two-finger drag: pan while building\n"
++                                                    @"Pinch: zoom\n"
++                                                    @"Hold or two-finger tap: inspect, cancel, or go back\n\n"
++                                                    @"PENCIL MODE (Options)\n"
++                                                    @"Pencil selects and places; fingers only navigate. Hold the Pencil, double-tap its side, or squeeze to cancel/go back.\n\n"
++                                                    @"QUICK START\n"
++                                                    @"Play Pharaoh/Cleopatra → New Family → Predynastic → Nubt. Build housing beside the Kingdom road, connect it with roads, then add water and food as the mission asks."
+                                      preferredStyle:UIAlertControllerStyleAlert];
+     [help addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+     [self presentViewController:help animated:YES completion:nil];
+@@ -217,7 +256,32 @@
+ 
+ UIButton *g_overlay_button = nil;
+ EmeraldTabletOverlayTarget *g_overlay_target = nil;
++UIPencilInteraction *g_pencil_interaction = nil;
++EmeraldTabletPencilTarget *g_pencil_target = nil;
+ 
++void enqueue_pencil_secondary_action() {
++    SDL_Window *window = SDL_GetKeyboardFocus();
++    if (!window) {
++        return;
++    }
++    int x = 0;
++    int y = 0;
++    SDL_GetMouseState(&x, &y);
++    SDL_Event down = {};
++    down.type = SDL_MOUSEBUTTONDOWN;
++    down.button.windowID = SDL_GetWindowID(window);
++    down.button.button = SDL_BUTTON_RIGHT;
++    down.button.state = SDL_PRESSED;
++    down.button.clicks = 1;
++    down.button.x = x;
++    down.button.y = y;
++    SDL_Event up = down;
++    up.type = SDL_MOUSEBUTTONUP;
++    up.button.state = SDL_RELEASED;
++    SDL_PushEvent(&down);
++    SDL_PushEvent(&up);
++}
++
+ } // namespace
+ 
+ void install_overlay() {
+@@ -252,6 +316,13 @@
+         [ui_window addSubview:button];
+         g_overlay_button = button;
+ 
++        if (@available(iOS 12.1, *)) {
++            g_pencil_target = [EmeraldTabletPencilTarget new];
++            g_pencil_interaction = [UIPencilInteraction new];
++            g_pencil_interaction.delegate = g_pencil_target;
++            [ui_window addInteraction:g_pencil_interaction];
++        }
++
+         [NSLayoutConstraint activateConstraints:@[
+             [button.topAnchor constraintEqualToAnchor:ui_window.safeAreaLayoutGuide.topAnchor constant:4],
+             [button.trailingAnchor constraintEqualToAnchor:ui_window.safeAreaLayoutGuide.trailingAnchor constant:-8],
+@@ -267,9 +338,30 @@
+             [g_overlay_button removeFromSuperview];
+             g_overlay_button = nil;
+         }
++        if (g_pencil_interaction) {
++            [sdl_ui_window() removeInteraction:g_pencil_interaction];
++            g_pencil_interaction = nil;
++            g_pencil_target = nil;
++        }
+     });
+ }
+ 
++void apply_product_defaults() {
++    static bool checked = false;
++    if (checked) {
++        return;
++    }
++    checked = true;
++    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
++    NSString *key = @"emeraldtablet.clean-game-ui-v1";
++    if (![defaults boolForKey:key]) {
++        game_features::gameui_draw_fps.set(false);
++        game_features::gameui_sidebar_info.set(false);
++        game_features::save();
++        [defaults setBool:YES forKey:key];
++    }
++}
++
+ bool hardware_keyboard_connected() {
+     if (@available(iOS 14.0, *)) {
+         return [GCKeyboard coalescedKeyboard] != nil;
+--- a/src/platform/platform_ios_picker.h
++++ b/src/platform/platform_ios_picker.h
+@@ -12,6 +12,10 @@
+ // own Pharaoh + Cleopatra game folder.
+ bool start_folder_pick();
+ 
++// Present a file picker for one user-supplied Akhenaten .sgx mod. The file is
++// copied into Documents/GameData/mods without enabling it automatically.
++bool start_mod_pick();
++
+ // True while the picker or the import copy is running.
+ bool is_active();
+ 
+@@ -21,6 +25,10 @@
+ // Consume a finished import: true + imported root, or false + error text.
+ bool take_result(std::string &path_out, std::string &error_out);
+ 
++// Consume a finished mod import. On success, name_out is the imported file's
++// display name only; private source paths are never returned or logged.
++bool take_mod_result(std::string &name_out, std::string &error_out);
++
+ } // namespace ios_picker
+ 
+ #endif // GAME_PLATFORM_IOS
+--- a/src/platform/platform_ios_picker.mm
++++ b/src/platform/platform_ios_picker.mm
+@@ -24,8 +24,14 @@
+     failed,
+ };
+ 
++enum class PickerKind {
++    game_folder,
++    mod_file,
++};
++
+ struct PickerState {
+     std::atomic<State> state{State::idle};
++    std::atomic<PickerKind> kind{PickerKind::game_folder};
+     std::mutex mutex;
+     std::string result_path;
+     std::string error;
+@@ -171,6 +177,8 @@
+     PickerState &st = picker();
+     st.state.store(State::copying);
+ 
++    const bool security_scoped = [url startAccessingSecurityScopedResource];
++
+     std::string picked = path_from_url(url);
+     std::string root = find_game_root(picked);
+     if (root.empty()) {
+@@ -179,6 +187,9 @@
+             st.error = "Selected folder has no campaign.txt (not a Pharaoh game install).";
+         }
+         st.state.store(State::failed);
++        if (security_scoped) {
++            [url stopAccessingSecurityScopedResource];
++        }
+         return;
+     }
+ 
+@@ -188,6 +199,9 @@
+         std::lock_guard<std::mutex> lock(st.mutex);
+         st.error = "App Documents directory is unavailable.";
+         st.state.store(State::failed);
++        if (security_scoped) {
++            [url stopAccessingSecurityScopedResource];
++        }
+         return;
+     }
+     std::string docs = path_from_url(docs_urls.firstObject);
+@@ -209,6 +223,9 @@
+             st.error = "Not enough free storage for the selected game data.";
+         }
+         st.state.store(State::failed);
++        if (security_scoped) {
++            [url stopAccessingSecurityScopedResource];
++        }
+         return;
+     }
+ 
+@@ -225,10 +242,105 @@
+                 st.result_path = docs + "/GameData";
+             }
+             st.state.store(State::done);
++            if (security_scoped) {
++                [url stopAccessingSecurityScopedResource];
++            }
+         }
+     });
+ }
+ 
++void run_mod_import(NSURL *url) {
++    PickerState &st = picker();
++    st.state.store(State::copying);
++    const bool security_scoped = [url startAccessingSecurityScopedResource];
++
++    NSString *filename = url.lastPathComponent;
++    if (![filename.pathExtension.lowercaseString isEqualToString:@"sgx"]) {
++        mark_failed("Choose an Akhenaten mod with the .sgx extension.");
++        if (security_scoped) {
++            [url stopAccessingSecurityScopedResource];
++        }
++        return;
++    }
++
++    NSFileManager *fm = NSFileManager.defaultManager;
++    NSDictionary *attributes = [fm attributesOfItemAtPath:url.path error:nullptr];
++    if (!attributes || [attributes fileSize] == 0) {
++        mark_failed("The selected .sgx file is empty or unavailable.");
++        if (security_scoped) {
++            [url stopAccessingSecurityScopedResource];
++        }
++        return;
++    }
++
++    NSArray<NSURL *> *docs_urls = [fm URLsForDirectory:NSDocumentDirectory
++                                              inDomains:NSUserDomainMask];
++    if (docs_urls.count == 0) {
++        mark_failed("App Documents directory is unavailable.");
++        if (security_scoped) {
++            [url stopAccessingSecurityScopedResource];
++        }
++        return;
++    }
++
++    NSURL *mods_dir = [[docs_urls.firstObject URLByAppendingPathComponent:@"GameData"]
++        URLByAppendingPathComponent:@"mods"];
++    NSURL *destination = [mods_dir URLByAppendingPathComponent:filename];
++    if ([url.URLByStandardizingPath.path isEqualToString:destination.URLByStandardizingPath.path]) {
++        {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            st.result_path = filename.UTF8String ?: "Imported mod";
++        }
++        st.state.store(State::done);
++        if (security_scoped) {
++            [url stopAccessingSecurityScopedResource];
++        }
++        return;
++    }
++
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
++        @autoreleasepool {
++            NSError *error = nil;
++            [fm createDirectoryAtURL:mods_dir
++          withIntermediateDirectories:YES
++                           attributes:nil
++                                error:&error];
++            NSURL *staging = [mods_dir URLByAppendingPathComponent:
++                [@"." stringByAppendingFormat:@"%@.importing", filename]];
++            [fm removeItemAtURL:staging error:nullptr];
++            if (!error && ![fm copyItemAtURL:url toURL:staging error:&error]) {
++                // error is populated by copyItemAtURL.
++            }
++            if (!error) {
++                if ([fm fileExistsAtPath:destination.path]) {
++                    [fm replaceItemAtURL:destination
++                           withItemAtURL:staging
++                          backupItemName:nil
++                                 options:0
++                        resultingItemURL:nullptr
++                                   error:&error];
++                } else {
++                    [fm moveItemAtURL:staging toURL:destination error:&error];
++                }
++            }
++
++            if (error) {
++                [fm removeItemAtURL:staging error:nullptr];
++                mark_failed("The selected mod could not be copied into Emerald Tablet.");
++            } else {
++                {
++                    std::lock_guard<std::mutex> lock(st.mutex);
++                    st.result_path = filename.UTF8String ?: "Imported mod";
++                }
++                st.state.store(State::done);
++            }
++            if (security_scoped) {
++                [url stopAccessingSecurityScopedResource];
++            }
++        }
++    });
++}
++
+ } // namespace ios_picker
+ 
+ // Keep the delegate at global scope (Objective-C declarations cannot live in a
+@@ -252,8 +364,11 @@
+     (void)controller;
+     if (urls.count > 0) {
+         NSURL *url = urls.firstObject;
+-        [url startAccessingSecurityScopedResource];
+-        ios_picker::run_import(url);
++        if (ios_picker::picker().kind.load() == ios_picker::PickerKind::mod_file) {
++            ios_picker::run_mod_import(url);
++        } else {
++            ios_picker::run_import(url);
++        }
+     } else {
+         ios_picker::mark_failed("No folder was selected.");
+     }
+@@ -261,19 +376,24 @@
+ 
+ - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
+     (void)controller;
+-    ios_picker::mark_failed("Folder selection was cancelled.");
++    if (ios_picker::picker().kind.load() == ios_picker::PickerKind::mod_file) {
++        ios_picker::mark_failed("");
++    } else {
++        ios_picker::mark_failed("Folder selection was cancelled.");
++    }
+ }
+ 
+ @end
+ 
+ namespace ios_picker {
+ 
+-bool start_folder_pick() {
++bool start_pick(PickerKind kind) {
+     PickerState &st = picker();
+     State expected = State::idle;
+     if (!st.state.compare_exchange_strong(expected, State::picking)) {
+         return false;
+     }
++    st.kind.store(kind);
+ 
+     dispatch_async(dispatch_get_main_queue(), ^{
+         UIViewController *vc = root_view_controller();
+@@ -283,8 +403,9 @@
+             st.state.store(State::failed);
+             return;
+         }
++        UTType *content_type = kind == PickerKind::mod_file ? UTTypeData : UTTypeFolder;
+         UIDocumentPickerViewController *picker_vc =
+-            [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]];
++            [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[content_type]];
+         picker_vc.allowsMultipleSelection = NO;
+         picker_vc.delegate = [PickerDelegate sharedDelegate];
+         [vc presentViewController:picker_vc animated:YES completion:nil];
+@@ -292,6 +413,14 @@
+     return true;
+ }
+ 
++bool start_folder_pick() {
++    return start_pick(PickerKind::game_folder);
++}
++
++bool start_mod_pick() {
++    return start_pick(PickerKind::mod_file);
++}
++
+ bool is_active() {
+     State s = picker().state.load();
+     return s == State::picking || s == State::copying;
+@@ -303,6 +432,9 @@
+ 
+ bool take_result(std::string &path_out, std::string &error_out) {
+     PickerState &st = picker();
++    if (st.kind.load() != PickerKind::game_folder) {
++        return false;
++    }
+     State s = st.state.load();
+     if (s == State::done) {
+         {
+@@ -324,6 +456,31 @@
+     return false;
+ }
+ 
++bool take_mod_result(std::string &name_out, std::string &error_out) {
++    PickerState &st = picker();
++    if (st.kind.load() != PickerKind::mod_file) {
++        return false;
++    }
++    State s = st.state.load();
++    if (s == State::done) {
++        {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            name_out = st.result_path;
++            error_out.clear();
++        }
++        st.state.store(State::idle);
++        return true;
++    }
++    if (s == State::failed) {
++        {
++            std::lock_guard<std::mutex> lock(st.mutex);
++            error_out = st.error;
++        }
++        st.state.store(State::idle);
++    }
++    return false;
++}
++
+ } // namespace ios_picker
+ 
+ #endif // GAME_PLATFORM_IOS
+--- a/src/scripts/ui_mods_window.js
++++ b/src/scripts/ui_mods_window.js
+@@ -95,6 +95,10 @@
+ [es=(mods_window, init)]
+ function mods_window_on_init(window) {
+     __log_marker("window_show:mods_window")
++	if (__platform_is_ios()) {
++		window.refresh_mods.text = "Import .sgx"
++		window.bottom_text.text = "Hold Pencil or two-finger tap to exit; double tap a mod to toggle"
++	}
+     window.refresh_mods_text = window.refresh_mods.text
+ 
+     var n = mods.count()
+@@ -103,3 +107,8 @@
+         window.mods.add_item(mods.name(i))
+     }
+ }
++
++[es=(mods_window, event_mods_info_updated)]
++function mods_window_on_info_updated(window, ev) {
++	mods_window_on_init(window)
++}
+--- a/src/scripts/ui_sidebar_window.js
++++ b/src/scripts/ui_sidebar_window.js
+@@ -178,7 +178,7 @@
+         dec_speed         : arrowdown({pos[11, 470 + 30], tiny:false, allow_repeat: true, onclick: function () { emit event_change_gamespeed{ increase: false } } })
+         inc_speed         : arrowup({pos[35, 470 + 30], tiny:false, allow_repeat: true, onclick: function () { emit event_change_gamespeed{ increase: true } } })
+ 
+-        unemp_header      : text({pos[11, 480 + 50], text:[68, 135], font:FONT_NORMAL_WHITE_ON_DARK})
++        unemp_header      : text({pos[11, 480 + 50], text:"#TR_PALACE_TOOLTIP_UNEMPLOYMENT", font:FONT_NORMAL_WHITE_ON_DARK})
+         unemp_current     : text({pos[11, 480 + 70], font:FONT_NORMAL_WHITE_ON_DARK})
+ 
+         population_header : text({pos[11, 480 + 90], font:FONT_NORMAL_WHITE_ON_DARK})
+@@ -356,4 +356,4 @@
+ function window_build_menu_build_security() {
+     ui.sidebar_set_type(BUILDING_MENU_SECURITY)
+     ui.window_build_menu_show(BUILDING_MENU_SECURITY)
+-}
+\ No newline at end of file
++}
+--- a/src/scripts/ui_top_menu_bar.js
++++ b/src/scripts/ui_top_menu_bar.js
+@@ -1,5 +1,20 @@
+ log_info("akhenaten: ui top menu bar started")
+ 
++function top_menu_filter_ios_developer_menus() {
++	if (!__platform_is_ios() || top_menu_state.ios_menus_filtered) {
++		return
++	}
++	var visible = []
++	for (var i = 0; i < top_menu_widget.menus.length; i++) {
++		var menu = top_menu_widget.menus[i]
++		if (menu.id != "debug" && menu.id != "debug_render") {
++			visible.push(menu)
++		}
++	}
++	top_menu_widget.menus = visible
++	top_menu_state.ios_menus_filtered = 1
++}
++
+ function top_menu_format_date(year, month) {
+ 	var month_str = month_name(month)
+ 	if (year >= 0) {
+@@ -239,6 +254,7 @@
+ 
+ [es=top_menu_draw]
+ function top_menu_draw(ev) {
++	top_menu_filter_ios_developer_menus()
+ 	if (top_menu_state.open_sub_menu && !ui.window_is("top_menu_submenu")) {
+ 		top_menu_clear_state()
+ 	}
+@@ -249,6 +265,7 @@
+ }
+ 
+ function top_menu_handle_input() {
++	top_menu_filter_ios_developer_menus()
+ 	if (__ui_screen_city_capture_input()) {
+ 		return 0
+ 	}
+--- a/src/scripts/ui_top_menu_widget.js
++++ b/src/scripts/ui_top_menu_widget.js
+@@ -8,6 +8,7 @@
+ 	population_str: ""
+ 	item_clicked: 0
+ 	rotate_hover: 0
++	ios_menus_filtered: 0
+ 	headers_right: 0
+ 	status_shift: 0
+ 	header_layout: {}
+

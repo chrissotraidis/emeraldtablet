@@ -101,6 +101,8 @@ if [[ -d engines/akhenaten/.git || -f engines/akhenaten/.git ]]; then
     allowed_untracked="$(printf '%s' "$patch_new_files" | sort -u | sed '/^$/d')"
     engine_untracked="$(git -C engines/akhenaten status --porcelain --untracked-files=all |
         awk '$1 == "??" {print $2}' | sort -u)"
+    allowed_untracked="$(printf '%s\n%s\n' "$allowed_untracked" \
+        'res/ios/Assets.xcassets/AppIcon.appiconset/AppIcon.png' | sort -u | sed '/^$/d')"
     extra_untracked="$(comm -23 <(printf '%s\n' "$engine_untracked") <(printf '%s\n' "$allowed_untracked") || true)"
     if [[ -n "$extra_untracked" ]]; then
         printf '%s\n' "$extra_untracked" >&2
@@ -115,7 +117,7 @@ if [[ -d engines/akhenaten/.git || -f engines/akhenaten/.git ]]; then
         patched_files="$(git apply --numstat "${engine_patches[@]}" |
             awk 'NF >= 3 {print $3}' | sort -u)"
         dirty_files="$(git -C engines/akhenaten status --porcelain --untracked-files=all |
-            awk '{print $NF}' | sort -u)"
+            awk '{print $NF}' | grep -v '^res/ios/Assets\.xcassets/AppIcon\.appiconset/AppIcon\.png$' | sort -u)"
         extra_dirty="$(comm -23 <(printf '%s\n' "$dirty_files") <(printf '%s\n' "$patched_files") || true)"
         if [[ -n "$extra_dirty" ]]; then
             printf '%s\n' "$extra_dirty" >&2

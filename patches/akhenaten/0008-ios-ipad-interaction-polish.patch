@@ -1,0 +1,406 @@
+From 8f50a004937c1544199e33e78737e71946a5c92b Mon Sep 17 00:00:00 2001
+From: Emerald Tablet <emeraldtablet@local>
+Date: Sun, 16 Aug 2026 20:50:21 +0200
+Subject: [PATCH] iOS: polish physical input and display
+
+Purpose: Slow touch panning, consume navigation gestures before construction, keep iOS fullscreen, avoid the software keyboard with attached hardware, finish drained intro video, and offer persistent crisp scaling.
+
+Affected platforms: iOS and iPadOS behavior only; shared renderer declarations remain inert elsewhere.
+
+Upstream status: Candidate after physical acceptance; native menu preferences remain Emerald Tablet specific.
+
+Tests: Clean patch reconstruction, repository safety scan, hermetic engine suite, Simulator/device builds and audits, preservation-safe physical iPad install and launch.
+---
+ src/graphics/video.cpp               |  3 +-
+ src/input/scroll.cpp                 | 48 ++++++++++++++++++++--------
+ src/input/scroll.h                   |  5 ++-
+ src/platform/platform_ios.cpp        |  2 ++
+ src/platform/platform_ios_overlay.h  |  4 +++
+ src/platform/platform_ios_overlay.mm | 47 +++++++++++++++++++++++----
+ src/platform/renderer.cpp            | 23 +++++++++++--
+ src/platform/renderer.h              |  3 ++
+ src/widget/widget_city.cpp           | 20 ++++++++++--
+ 9 files changed, 129 insertions(+), 26 deletions(-)
+
+diff --git a/src/graphics/video.cpp b/src/graphics/video.cpp
+index a120346ff..b1f3863f0 100644
+--- a/src/graphics/video.cpp
++++ b/src/graphics/video.cpp
+@@ -235,7 +235,8 @@ static int get_next_frame(void) {
+     int frame_no = (now_millis - data.video.start_render_millis) * 1000 / data.video.micros_per_frame;
+     if (data.audio.has_audio) {
+         uint64_t played_micros = g_sound.custom_music_playback_micros();
+-        if (played_micros > 0) {
++        uint64_t buffered_micros = g_sound.custom_music_buffered_micros();
++        if (played_micros > 0 && buffered_micros > 0) {
+             frame_no = (int)(played_micros / data.video.micros_per_frame);
+         }
+     }
+diff --git a/src/input/scroll.cpp b/src/input/scroll.cpp
+index 788445a53..52d6f5476 100644
+--- a/src/input/scroll.cpp
++++ b/src/input/scroll.cpp
+@@ -18,6 +18,18 @@ enum key_state { KEY_STATE_UNPRESSED = 0, KEY_STATE_PRESSED = 1, KEY_STATE_HELD
+ 
+ scroll_t g_scroll;
+ 
++namespace {
++
++double touch_pan_scale() {
++#if defined(GAME_PLATFORM_IOS)
++    return 0.25;
++#else
++    return 1.0;
++#endif
++}
++
++} // namespace
++
+ void ANK_REGISTER_CONFIG_ITERATOR(config_load_scroll_config) {
+     g_config_arch.r("scroll_config", g_scroll.config);
+ }
+@@ -202,12 +214,16 @@ void scroll_t::drag_start(drag_source source) {
+ int scroll_t::set_speed_from_drag(bool keep_delta) {
+     if (!drag.active)
+         return 0;
+-    int delta_x = 0;
+-    int delta_y = 0;
++    double delta_x = 0;
++    double delta_y = 0;
++    int travel_x = 0;
++    int travel_y = 0;
+     if (!drag.is_touch) {
+-        g_mouse.get_relative_state(&delta_x, &delta_y);
+-        float fx = dampen_mouse_relative_pan_delta((float)delta_x);
+-        float fy = dampen_mouse_relative_pan_delta((float)delta_y);
++        int raw_x = 0;
++        int raw_y = 0;
++        g_mouse.get_relative_state(&raw_x, &raw_y);
++        float fx = dampen_mouse_relative_pan_delta((float)raw_x);
++        float fy = dampen_mouse_relative_pan_delta((float)raw_y);
+         if (drag.apply_middle_mouse_pan_speed) {
+             float s = game_features::gameopt_middle_mouse_pan_speed.to_float();
+             if (s < 0.f)
+@@ -218,17 +234,22 @@ int scroll_t::set_speed_from_drag(bool keep_delta) {
+             fx *= mul;
+             fy *= mul;
+         }
+-        delta_x = (int)std::lround(fx);
+-        delta_y = (int)std::lround(fy);
++        delta_x = std::lround(fx);
++        delta_y = std::lround(fy);
++        travel_x = std::abs((int)delta_x);
++        travel_y = std::abs((int)delta_y);
+     } else {
+         const touch_t* t = get_earliest_touch();
+-        delta_x = -t->frame_movement.x;
+-        delta_y = -t->frame_movement.y;
++        const double scale = touch_pan_scale();
++        delta_x = -t->frame_movement.x * scale;
++        delta_y = -t->frame_movement.y * scale;
++        travel_x = std::abs(t->frame_movement.x);
++        travel_y = std::abs(t->frame_movement.y);
+     }
+     drag.delta.x += delta_x;
+     drag.delta.y += delta_y;
+-    drag.travel.x += std::abs(delta_x);
+-    drag.travel.y += std::abs(delta_y);
++    drag.travel.x += travel_x;
++    drag.travel.y += travel_y;
+     if (!drag.moved
+         && (drag.travel.x > config.drag_min_delta || drag.travel.y > config.drag_min_delta)) {
+         drag.moved = 1;
+@@ -254,8 +275,9 @@ int scroll_t::drag_end() {
+         g_mouse.set_relative_mode(0);
+     else if (has_scrolled) {
+         const touch_t* t = get_earliest_touch();
+-        speed_set_target(speed.x, -t->frame_movement.x, SPEED_CHANGE_IMMEDIATE, 1);
+-        speed_set_target(speed.y, -t->frame_movement.y, SPEED_CHANGE_IMMEDIATE, 1);
++        const double scale = touch_pan_scale();
++        speed_set_target(speed.x, -t->frame_movement.x * scale, SPEED_CHANGE_IMMEDIATE, 1);
++        speed_set_target(speed.y, -t->frame_movement.y * scale, SPEED_CHANGE_IMMEDIATE, 1);
+     }
+     speed_set_target(speed.x, 0, config.drag_decay_time, 1);
+     speed_set_target(speed.y, 0, config.drag_decay_time, 1);
+diff --git a/src/input/scroll.h b/src/input/scroll.h
+index b5372d885..4f836a5a5 100644
+--- a/src/input/scroll.h
++++ b/src/input/scroll.h
+@@ -94,7 +94,10 @@ private:
+         int is_touch = 0;
+         int apply_middle_mouse_pan_speed = 0;
+         int moved = 0;
+-        vec2i delta;
++        struct {
++            double x = 0;
++            double y = 0;
++        } delta;
+         vec2i travel;
+     };
+ 
+diff --git a/src/platform/platform_ios.cpp b/src/platform/platform_ios.cpp
+index 938fc6964..7360a507b 100644
+--- a/src/platform/platform_ios.cpp
++++ b/src/platform/platform_ios.cpp
+@@ -159,6 +159,8 @@ pcstr platform_t::get_steam_path() {
+ void platform_show_virtual_keyboard(const uint8_t *text, int max_length) {
+     (void)text;
+     (void)max_length;
++    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD,
++        ios_overlay::hardware_keyboard_connected() ? "0" : "1");
+     SDL_StartTextInput();
+ }
+ 
+diff --git a/src/platform/platform_ios_overlay.h b/src/platform/platform_ios_overlay.h
+index 242ece9dd..870e8ddfa 100644
+--- a/src/platform/platform_ios_overlay.h
++++ b/src/platform/platform_ios_overlay.h
+@@ -13,6 +13,10 @@ void install_overlay();
+ // Remove the overlay button (used on teardown).
+ void remove_overlay();
+ 
++// Public iPadOS hardware-keyboard state used to avoid raising the software
++// keyboard while preserving SDL text input events.
++bool hardware_keyboard_connected();
++
+ } // namespace ios_overlay
+ 
+ #endif
+diff --git a/src/platform/platform_ios_overlay.mm b/src/platform/platform_ios_overlay.mm
+index 2ec9e4093..7f13a0620 100644
+--- a/src/platform/platform_ios_overlay.mm
++++ b/src/platform/platform_ios_overlay.mm
+@@ -4,6 +4,7 @@
+ 
+ #if defined(GAME_PLATFORM_IOS)
+ 
++#import <GameController/GameController.h>
+ #import <UIKit/UIKit.h>
+ 
+ #include <SDL.h>
+@@ -11,6 +12,7 @@
+ 
+ #include "game/game_events.h"
+ #include "input/hotkey.h"
++#include "platform/renderer.h"
+ 
+ namespace ios_overlay {
+ 
+@@ -33,7 +35,9 @@ void show_controls(UIButton *source);
+ }
+ @end
+ 
+-@interface EmeraldTabletControlsController : UIViewController
++@interface EmeraldTabletControlsController : UIViewController {
++    UIButton *_crispButton;
++}
+ @end
+ 
+ namespace ios_overlay {
+@@ -90,7 +94,7 @@ EmeraldTabletControlsController *g_controls_controller = nil;
+     root.backgroundColor = UIColor.systemBackgroundColor;
+     root.layoutMargins = UIEdgeInsetsMake(14, 14, 14, 14);
+     self.view = root;
+-    self.preferredContentSize = CGSizeMake(340, 236);
++    self.preferredContentSize = CGSizeMake(340, 296);
+ 
+     UILabel *title = [UILabel new];
+     title.text = @"Game controls";
+@@ -106,6 +110,10 @@ EmeraldTabletControlsController *g_controls_controller = nil;
+     UIButton *faster = [self controlButtonWithTitle:@"Speed +"
+                                              action:@selector(speedUp)
+                                          identifier:@"emeraldtablet.speed-up"];
++    _crispButton = [self controlButtonWithTitle:@""
++                                         action:@selector(toggleCrispScaling)
++                                     identifier:@"emeraldtablet.crisp-scaling"];
++    [self updateCrispButton];
+     UIButton *help = [self controlButtonWithTitle:@"Touch help"
+                                            action:@selector(showHelp)
+                                        identifier:@"emeraldtablet.help"];
+@@ -125,7 +133,7 @@ EmeraldTabletControlsController *g_controls_controller = nil;
+     secondary.spacing = 8;
+     secondary.distribution = UIStackViewDistributionFillEqually;
+ 
+-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, speed, pause, secondary]];
++    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, speed, pause, _crispButton, secondary]];
+     stack.translatesAutoresizingMaskIntoConstraints = NO;
+     stack.axis = UILayoutConstraintAxisVertical;
+     stack.spacing = 12;
+@@ -150,14 +158,29 @@ EmeraldTabletControlsController *g_controls_controller = nil;
+     events::emit(event_change_gamespeed{false});
+ }
+ 
++- (void)updateCrispButton {
++    const BOOL enabled = g_render.crisp_scaling();
++    [_crispButton setTitle:(enabled ? @"Crisp scaling: On" : @"Crisp scaling: Off")
++                  forState:UIControlStateNormal];
++    _crispButton.accessibilityValue = enabled ? @"On" : @"Off";
++}
++
++- (void)toggleCrispScaling {
++    const bool enabled = !g_render.crisp_scaling();
++    g_render.set_crisp_scaling(enabled);
++    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:@"emeraldtablet.crisp-scaling"];
++    [self updateCrispButton];
++}
++
+ - (void)showHelp {
+     UIAlertController *help =
+         [UIAlertController alertControllerWithTitle:@"Touch controls"
+                                             message:@"Tap: select and press controls\n"
+-                                                    @"Drag one finger: pan the map\n"
+-                                                    @"Pinch: zoom\n"
++                                                    @"Drag one finger: pan the map at a controlled speed\n"
++                                                    @"Drag two fingers: pan while building\n"
++                                                    @"Pinch two fingers: zoom\n"
+                                                     @"Long press or two-finger tap: inspect / cancel\n\n"
+-                                                    @"Pencil mode (Options): Pencil selects and places; fingers pan and zoom."
++                                                    @"Pencil mode (Options): Pencil selects and places; fingers only pan and zoom."
+                                      preferredStyle:UIAlertControllerStyleAlert];
+     [help addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+     [self presentViewController:help animated:YES completion:nil];
+@@ -207,11 +230,14 @@ void install_overlay() {
+             return;
+         }
+ 
++        const bool crisp = [[NSUserDefaults standardUserDefaults] boolForKey:@"emeraldtablet.crisp-scaling"];
++        g_render.set_crisp_scaling(crisp);
++
+         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+         button.translatesAutoresizingMaskIntoConstraints = NO;
+         button.accessibilityIdentifier = @"emeraldtablet.overlay-menu";
+         button.accessibilityLabel = @"Game controls";
+-        button.accessibilityHint = @"Pause, speed, and touch help";
++        button.accessibilityHint = @"Pause, speed, crisp scaling, and touch help";
+         button.tintColor = UIColor.whiteColor;
+         button.backgroundColor = [UIColor.blackColor colorWithAlphaComponent:0.55];
+         button.layer.cornerRadius = 8;
+@@ -244,6 +270,13 @@ void remove_overlay() {
+     });
+ }
+ 
++bool hardware_keyboard_connected() {
++    if (@available(iOS 14.0, *)) {
++        return [GCKeyboard coalescedKeyboard] != nil;
++    }
++    return false;
++}
++
+ } // namespace ios_overlay
+ 
+ #endif
+diff --git a/src/platform/renderer.cpp b/src/platform/renderer.cpp
+index 27e617b7e..bfc26e302 100644
+--- a/src/platform/renderer.cpp
++++ b/src/platform/renderer.cpp
+@@ -86,6 +86,7 @@ struct renderer_data_t {
+     std::vector<uint8_t> filter_output_pixels;
+     SDL_GLContext main_gl_context;
+     int is_software_renderer;
++    bool crisp_scaling = false;
+ 
+     struct {
+         SDL_Texture* texture;
+@@ -803,13 +804,27 @@ SDL_Texture* graphics_renderer_interface::create_texture_from_png_buffer(void *b
+ }
+ 
+ bool graphics_renderer_interface::is_fullscreen_only() {
+-#if defined(GAME_PLATFORM_ANDROID) || defined(__SWITCH__) || defined(__vita__)
++#if defined(GAME_PLATFORM_ANDROID) || defined(GAME_PLATFORM_IOS) || defined(__SWITCH__) || defined(__vita__)
+     return true;
+ #else
+     return false;
+ #endif
+ }
+ 
++void graphics_renderer_interface::set_crisp_scaling(bool enabled) {
++    auto &data = g_renderer_data;
++    data.crisp_scaling = enabled;
++#ifdef USE_TEXTURE_SCALE_MODE
++    if (HAS_TEXTURE_SCALE_MODE && data.render_texture) {
++        SDL_SetTextureScaleMode(data.render_texture, enabled ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);
++    }
++#endif
++}
++
++bool graphics_renderer_interface::crisp_scaling() {
++    return g_renderer_data.crisp_scaling;
++}
++
+ 
+ float graphics_renderer_interface::scale() {
+     return g_renderer_data.global_render_scale;
+@@ -1115,7 +1130,11 @@ int platform_renderer_create_render_texture(int width, int height) {
+ #ifdef USE_TEXTURE_SCALE_MODE
+         if (HAS_TEXTURE_SCALE_MODE) {
+             SDL_ScaleMode scale_quality = SDL_ScaleModeLinear;
+-#ifndef __APPLE__
++#if defined(GAME_PLATFORM_IOS)
++            if (data.crisp_scaling) {
++                scale_quality = SDL_ScaleModeNearest;
++            }
++#elif !defined(__APPLE__)
+             if (g_platform_screen.get_scale() % 100 == 0) {
+                 scale_quality = SDL_ScaleModeNearest;
+             }
+diff --git a/src/platform/renderer.h b/src/platform/renderer.h
+index f7d69ffb1..cf339208b 100644
+--- a/src/platform/renderer.h
++++ b/src/platform/renderer.h
+@@ -111,6 +111,9 @@ struct graphics_renderer_interface {
+      */
+     bool is_fullscreen_only();
+ 
++    void set_crisp_scaling(bool enabled);
++    bool crisp_scaling();
++
+     SDL_Renderer *renderer();
+     SDL_Window *window();
+ };
+diff --git a/src/widget/widget_city.cpp b/src/widget/widget_city.cpp
+index 0aab2cb07..1a5460b60 100644
+--- a/src/widget/widget_city.cpp
++++ b/src/widget/widget_city.cpp
+@@ -1164,7 +1164,7 @@ void screen_city_t::handle_touch_scroll(const touch_t * t, bool fore_capture_inp
+ 
+     holder_capture_input capture_holder(*this, t, fore_capture_input);
+ 
+-    if (g_city_planner.build_type) {
++    if (g_city_planner.build_type && !touch_is_navigation_only(t)) {
+         if (t->has_started) {
+             vec2i view_pos = g_camera.offset;
+             vec2i view_size = g_camera.size_pixels;
+@@ -1209,6 +1209,11 @@ void screen_city_t::handle_first_touch(tile2i tile) {
+     const touch_t * first = get_earliest_touch();
+     e_building_type type = g_city_planner.build_type;
+ 
++    if (touch_is_navigation_only(first)) {
++        handle_touch_scroll(first, false);
++        return;
++    }
++
+     if (touch_poll_long_press()) {
+         g_scroll.drag_end();
+         capture_input = false;
+@@ -1315,7 +1320,18 @@ bool screen_city_t::handle_last_touch(tile2i tile) {
+     if (gesture == TOUCH_GESTURE_UNDECIDED) {
+         return true;
+     }
+-    return false;
++    touch_consume_current_gesture();
++    if (g_city_planner.in_progress && g_city_planner.draggable()) {
++        g_city_planner.construction_cancel(false);
++        selected_tile.set(0);
++        new_start_grid_offset = 0;
++    }
++    g_scroll.restore_margins();
++    g_scroll.drag_start(scroll_t::drag_source::touch);
++    if (get_earliest_touch()->has_ended || last->has_ended) {
++        g_scroll.drag_end();
++    }
++    return true;
+ }
+ 
+ void screen_city_t::handle_touch() {
+-- 
+2.46.0

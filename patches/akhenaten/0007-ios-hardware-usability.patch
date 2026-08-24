@@ -1,0 +1,945 @@
+From: Emerald Tablet <emeraldtablet@local>
+Subject: [PATCH] iOS: resolve physical iPad usability debt
+Purpose: Fix case-sensitive campaign maps, deterministic menu navigation, touch gestures, text-input focus, persistent native controls, tablet backgrounds, sound steps, indirect input, and the app-icon catalog.
+Upstream status: Candidate after hardware validation; the native overlay and wrapper branding remain Apple-specific.
+Tests: Wrapper safety checks, Simulator/device builds and audits, followed by preservation-safe physical iPad validation.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 90558186c..ae4b6ee61 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1180,12 +1180,18 @@ elseif(PLATFORM_IOS)
+     set(MACOSX_BUNDLE_LONG_VERSION_STRING "${PROJECT_VERSION}.${GAME_BUILD_NUMBER}")
+     set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+ 
++    set(IOS_ASSET_CATALOG "${PROJECT_SOURCE_DIR}/res/ios/Assets.xcassets")
++    set_source_files_properties("${IOS_ASSET_CATALOG}" PROPERTIES
++        MACOSX_PACKAGE_LOCATION "Resources")
++    target_sources(${GAME} PRIVATE "${IOS_ASSET_CATALOG}")
++
+     set_target_properties(${GAME} PROPERTIES
+         MACOSX_BUNDLE TRUE
+         MACOSX_BUNDLE_INFO_PLIST "${PROJECT_SOURCE_DIR}/res/ios/Info.plist"
+         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${MACOSX_BUNDLE_GUI_IDENTIFIER}"
+         XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
++        XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
+         XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}"
+         IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+ endif()
+diff --git a/res/ios/Assets.xcassets/AppIcon.appiconset/Contents.json b/res/ios/Assets.xcassets/AppIcon.appiconset/Contents.json
+new file mode 100644
+index 000000000..cefcc878e
+--- /dev/null
++++ b/res/ios/Assets.xcassets/AppIcon.appiconset/Contents.json
+@@ -0,0 +1,14 @@
++{
++  "images" : [
++    {
++      "filename" : "AppIcon.png",
++      "idiom" : "universal",
++      "platform" : "ios",
++      "size" : "1024x1024"
++    }
++  ],
++  "info" : {
++    "author" : "xcode",
++    "version" : 1
++  }
++}
+diff --git a/res/ios/Assets.xcassets/Contents.json b/res/ios/Assets.xcassets/Contents.json
+new file mode 100644
+index 000000000..73c00596a
+--- /dev/null
++++ b/res/ios/Assets.xcassets/Contents.json
+@@ -0,0 +1,6 @@
++{
++  "info" : {
++    "author" : "xcode",
++    "version" : 1
++  }
++}
+diff --git a/res/ios/Info.plist b/res/ios/Info.plist
+index de816de04..2509da275 100644
+--- a/res/ios/Info.plist
++++ b/res/ios/Info.plist
+@@ -24,6 +24,8 @@
+ 	<true/>
+ 	<key>LSSupportsOpeningDocumentsInPlace</key>
+ 	<true/>
++	<key>UIApplicationSupportsIndirectInputEvents</key>
++	<true/>
+ 	<key>UIFileSharingEnabled</key>
+ 	<true/>
+ 	<key>UIRequiresFullScreen</key>
+diff --git a/src/graphics/elements/ui.cpp b/src/graphics/elements/ui.cpp
+index a50f16165..4fc6fee69 100644
+--- a/src/graphics/elements/ui.cpp
++++ b/src/graphics/elements/ui.cpp
+@@ -25,6 +25,7 @@
+ #include "widget/input_box.h"
+ #include "core/encoding.h"
+ #include "input/mouse.h"
++#include "input/keyboard.h"
+ #include "graphics/screen.h"
+ #include "window/message_dialog.h"
+ 
+@@ -1443,7 +1443,7 @@ void ui::eimg_queue::image(int image) {
+ void ui::ebackground::draw(UiFlags flags) {
+     painter ctx = game.painter();
+     scr_pos = pos;
+-    graphics_draw_background(ctx, img_desc.tid(), 1.f, pos);
++    graphics_draw_background(ctx, img_desc.tid(), scale, pos);
+ }
+ 
+ void ui::ebackground::load(archive arch, element* parent, items& elems) {
+@@ -1501,6 +1501,7 @@ void ui::einput::load(archive arch, element* parent, items& elems) {
+     _box.width_blocks = size.x;
+     _box.height_blocks = size.y;
+     _multiline = arch.r_bool("multiline", false);
++    _autofocus = arch.r_bool("autofocus", true);
+     int max_len = arch.r_int("max_length", MAX_PLAYER_NAME - 1);
+     constexpr int input_cap = 8192;
+     if (max_len > input_cap - 2) {
+@@ -1523,12 +1524,17 @@ void ui::einput::draw(UiFlags flags) {
+     _box.allow_punctuation = _allow_punctuation;
+     _box.host_input = this;
+     _box.text = (uint8_t*)_buffer.data();
+-    if (!_started) {
++    if (!_started && _autofocus) {
+         input_box_start(&_box, (uint8_t*)_buffer.data(), _box.max_length, _allow_punctuation);
+         _started = true;
+         g_state.active_input = this;
+         _last_buffer = _buffer;
+     }
++    if (!_started && g_keyboard.is_capturing_buffer(_box.text)) {
++        _started = true;
++        g_state.active_input = this;
++        _last_buffer = _buffer;
++    }
+ 
+     g_state.input_boxes.push_back(&_box);
+     input_box_draw(&_box);
+@@ -2534,4 +2540,4 @@ void ui::echeckbox::load(archive arch, element* parent, items& elems) {
+     _checked_text = arch.r_string("checked_text", "x");
+     _unchecked_text = arch.r_string("unchecked_text", "");
+     set_ref(CHECKEDFN, arch.r_function("checkedfn"));
+-}
+\ No newline at end of file
++}
+diff --git a/src/graphics/elements/ui.h b/src/graphics/elements/ui.h
+index 88bb168cf..29f50f5f1 100644
+--- a/src/graphics/elements/ui.h
++++ b/src/graphics/elements/ui.h
+@@ -672,6 +672,7 @@ namespace ui {
+         bstring<8192> _last_buffer;
+         mutable xstring _value_utf8_cache;
+         bool _started = false;
++        bool _autofocus = true;
+         int _allow_punctuation = 1;
+         bool _multiline = false;
+ 
+diff --git a/src/graphics/graphics.cpp b/src/graphics/graphics.cpp
+index c51f5b9c4..4e50784e9 100644
+--- a/src/graphics/graphics.cpp
++++ b/src/graphics/graphics.cpp
+@@ -53,7 +53,14 @@ void ui::textured::graphics_draw_background(painter& ctx, int image_id, float sc
+     }
+ 
+     if (scale == -1) {
+-        //        graphics_renderer()->draw_image(img, 0, 0, COLOR_MASK_NONE, scale, false); // todo?
++        const float scale_x = (float)screen_width() / (float)img->width;
++        const float scale_y = (float)screen_height() / (float)img->height;
++        const float cover_scale = std::max(scale_x, scale_y);
++        const int draw_width = (int)(img->width * cover_scale + 0.5f);
++        const int draw_height = (int)(img->height * cover_scale + 0.5f);
++        const vec2i draw_pos = {(screen_width() - draw_width) / 2,
++                               (screen_height() - draw_height) / 2};
++        ctx.draw_image(img, draw_pos, COLOR_MASK_NONE, cover_scale);
+     } else {
+         // Prefer any odd leftover pixel on top so the bottom edge of the art meets the screen.
+         const int pad_x = screen_width() - img->width;
+@@ -327,4 +334,4 @@ void ImageDraw::finalize_render(painter &ctx) {
+     }
+ 
+     g_render_debug_commands.clear();
+-}
+\ No newline at end of file
++}
+diff --git a/src/input/touch.cpp b/src/input/touch.cpp
+index 27c16b23f..76f6424f8 100644
+--- a/src/input/touch.cpp
++++ b/src/input/touch.cpp
+@@ -5,8 +5,11 @@
+ #include <stdlib.h>
+ 
+ #define CLICK_TIME 300
++#define LONG_PRESS_TIME 350
+ #define NOT_MOVING_RANGE 5
+ #define SCROLL_FINGER_RADIUS 25
++#define TWO_FINGER_PAN_ACTIVATION 16
++#define TWO_FINGER_ZOOM_ACTIVATION 24
+ #define MILLIS_TOLERANCE_BETWEEN_LAST_MOVE_AND_TOUCH_END 60
+ 
+ enum E_EMULATED_MOUSE { EMULATED_MOUSE_CLICK_NONE = 0, EMULATED_MOUSE_CLICK_LEFT = 1, EMULATED_MOUSE_CLICK_RIGHT = 2 };
+@@ -18,6 +21,7 @@ struct touch_data_t {
+     int mode;
+     int touchpad_mode_click_type;
+     int pencil_mode;
++    touch_gesture two_finger_gesture;
+ };
+ 
+ touch_data_t g_touch_data;
+@@ -73,7 +77,81 @@ int touch_not_click(const touch_t * t) {
+ }
+ 
+ int touch_was_click(const touch_t * t) {
+-    return (t->has_ended && !t->has_moved && (t->last_change_time - t->start_time) < CLICK_TIME);
++    return (!touch_is_navigation_only(t) && t->has_ended && !t->has_moved && !t->long_press_handled
++            && (t->last_change_time - t->start_time) < CLICK_TIME);
++}
++
++int touch_was_two_finger_tap(void) {
++    const touch_t *first = get_earliest_touch();
++    const touch_t *last = get_latest_touch();
++    if (!last->in_use || touch_is_navigation_only(first) || touch_is_navigation_only(last)
++        || last->start_time - first->start_time >= CLICK_TIME
++        || first->has_moved || last->has_moved
++        || first->long_press_handled || last->long_press_handled) {
++        return 0;
++    }
++    const time_millis now = time_get_millis();
++    const time_millis first_end = first->has_ended ? first->last_change_time : now;
++    const time_millis last_end = last->has_ended ? last->last_change_time : now;
++    return (first->has_ended || last->has_ended)
++        && first_end - first->start_time < CLICK_TIME
++        && last_end - last->start_time < CLICK_TIME;
++}
++
++int touch_poll_long_press(void) {
++    touch_t *t = const_cast<touch_t *>(get_earliest_touch());
++    const time_millis end_time = t->has_ended ? t->last_change_time : time_get_millis();
++    if (!t->in_use || touch_is_navigation_only(t) || t->long_press_handled
++        || abs(t->current_point.x - t->start_point.x) > 24
++        || abs(t->current_point.y - t->start_point.y) > 24
++        || end_time - t->start_time < LONG_PRESS_TIME) {
++        return 0;
++    }
++    t->long_press_handled = 1;
++    return 1;
++}
++
++int touch_is_navigation_only(const touch_t *t) {
++    return g_touch_data.pencil_mode && !t->is_stylus;
++}
++
++void touch_consume_current_gesture(void) {
++    auto &data = g_touch_data;
++    for (int i = 0; i < MAX_ACTIVE_TOUCHES; ++i) {
++        if (data.finger[i].in_use) {
++            data.finger[i].long_press_handled = 1;
++        }
++    }
++}
++
++touch_gesture touch_get_two_finger_gesture(void) {
++    auto &data = g_touch_data;
++    if (data.two_finger_gesture != TOUCH_GESTURE_UNDECIDED) {
++        return data.two_finger_gesture;
++    }
++    if (get_total_active_touches() != 2) {
++        return TOUCH_GESTURE_UNDECIDED;
++    }
++
++    const touch_t *first = get_earliest_touch();
++    const touch_t *last = get_latest_touch();
++    if (!first->has_moved || !last->has_moved) {
++        return TOUCH_GESTURE_UNDECIDED;
++    }
++
++    const int first_dx = first->current_point.x - first->start_point.x;
++    const int first_dy = first->current_point.y - first->start_point.y;
++    const int last_dx = last->current_point.x - last->start_point.x;
++    const int last_dy = last->current_point.y - last->start_point.y;
++    const int pan_delta = abs(first_dx + last_dx) + abs(first_dy + last_dy);
++    const int zoom_delta = abs(last_dx - first_dx) + abs(last_dy - first_dy);
++
++    if (zoom_delta >= TWO_FINGER_ZOOM_ACTIVATION && zoom_delta > pan_delta) {
++        data.two_finger_gesture = TOUCH_GESTURE_ZOOM;
++    } else if (pan_delta >= TWO_FINGER_PAN_ACTIVATION) {
++        data.two_finger_gesture = TOUCH_GESTURE_PAN;
++    }
++    return data.two_finger_gesture;
+ }
+ 
+ int touch_was_double_click(const touch_t* t) {
+@@ -139,6 +217,7 @@ int touch_create(vec2i start_coords, time_millis start_time, int is_stylus) {
+         t->has_started = 1;
+         t->has_ended = 0;
+         t->is_stylus = is_stylus;
++        t->long_press_handled = 0;
+         t->start_point = start_coords;
+         t->current_point = start_coords;
+         t->previous_frame_point = start_coords;
+@@ -185,6 +264,7 @@ void touch_end(int index, time_millis current_time) {
+     // This is needed because sometimes SDL waits for up to three frames to register the touch end
+     if (current_time - t->last_change_time < MILLIS_TOLERANCE_BETWEEN_LAST_MOVE_AND_TOUCH_END)
+         t->frame_movement = t->last_movement;
++    t->last_change_time = current_time;
+ }
+ 
+ void reset_touches(int reset_old_touch) {
+@@ -215,6 +295,9 @@ void reset_touches(int reset_old_touch) {
+             t->has_started = start_delayed(t);
+         }
+     }
++    if (get_total_active_touches() < 2) {
++        data.two_finger_gesture = TOUCH_GESTURE_UNDECIDED;
++    }
+ }
+ 
+ static bool any_touch_went_up(void) {
+diff --git a/src/input/touch.h b/src/input/touch.h
+index 484704935..f35f4fd77 100644
+--- a/src/input/touch.h
++++ b/src/input/touch.h
+@@ -12,12 +12,19 @@ enum {
+     TOUCH_MODE_MAX = 3
+ };
+ 
++enum touch_gesture {
++    TOUCH_GESTURE_UNDECIDED = 0,
++    TOUCH_GESTURE_PAN = 1,
++    TOUCH_GESTURE_ZOOM = 2
++};
++
+ struct touch_t {
+     int in_use;
+     int has_started;
+     int has_moved;
+     int has_ended;
+     int is_stylus;
++    int long_press_handled;
+     vec2i start_point;
+     vec2i current_point;
+     vec2i previous_frame_point;
+@@ -34,6 +41,11 @@ int get_total_active_touches();
+ int touch_not_click(const touch_t * t);
+ int touch_was_click(const touch_t * t);
+ int touch_was_double_click(const touch_t * t);
++int touch_was_two_finger_tap(void);
++int touch_poll_long_press(void);
++void touch_consume_current_gesture(void);
++touch_gesture touch_get_two_finger_gesture(void);
++int touch_is_navigation_only(const touch_t *t);
+ 
+ int touch_is_scroll();
+ int touch_get_scroll();
+diff --git a/src/io/gamestate/boilerplate.cpp b/src/io/gamestate/boilerplate.cpp
+index 9d80b253d..d5001ed20 100644
+--- a/src/io/gamestate/boilerplate.cpp
++++ b/src/io/gamestate/boilerplate.cpp
+@@ -102,6 +102,7 @@
+ #include <cstdlib>
+ #include <cstring>
+ #include <filesystem>
++#include <string>
+ #include <vector>
+ #include <cstdio>
+ 
+@@ -449,13 +450,20 @@ bool GamestateIO::load_mission(const int scenario_id, bool start_immediately) {
+     bool loaded = false;
+     bool map_file_missing = false;
+     if (!map_file.empty()) {
+-        const vfs::path map_full = vfs::path(map_file.c_str()).resolve();
++        std::string selected_map = map_file.c_str();
++        vfs::path map_full = vfs::path(selected_map.c_str()).resolve();
++        if (!vfs::file_exists(map_full) && selected_map.rfind("data/", 0) == 0) {
++            // Engine-owned campaign maps are bundled under Data/. Desktop
++            // filesystems commonly hide this mismatch; iOS does not.
++            selected_map.replace(0, 5, "Data/");
++            map_full = vfs::path(selected_map.c_str()).resolve();
++        }
+         if (!vfs::file_exists(map_full)) {
+             map_file_missing = true;
+             logs::warn("Mission %d: map file missing: %s (falling back to %s)",
+                        scenario_id, map_file.c_str(), MISSION_PACK_FILE);
+         } else {
+-            loaded = load_mission_map_raw(scenario_id, map_file.c_str());
++            loaded = load_mission_map_raw(scenario_id, selected_map.c_str());
+             if (!loaded) {
+                 logs::warn("Mission %d: map_file '%s' failed to load, falling back to %s",
+                            scenario_id, map_file.c_str(), MISSION_PACK_FILE);
+@@ -724,4 +732,4 @@ declare_console_command_p(save_map) {
+     os << (success
+            ? "Map saved successfully!\n"
+            : "Error: Failed to save map.\n");
+-}
+\ No newline at end of file
++}
+diff --git a/src/platform/platform_ios.cpp b/src/platform/platform_ios.cpp
+index 48ad36769..938fc6964 100644
+--- a/src/platform/platform_ios.cpp
++++ b/src/platform/platform_ios.cpp
+@@ -13,6 +13,9 @@
+ 
+ #include <SDL.h>
+ 
++#include <filesystem>
++#include <string>
++
+ #include "content/vfs.h"
+ 
+ namespace {
+@@ -94,6 +97,26 @@ int platform_poll_event(CoreEvent* event) {
+ }
+ 
+ pcstr platform_request_initial_data_directory() {
++    // App updates may preserve Documents while iPadOS assigns a new container
++    // UUID. Never trust the absolute container path persisted by an older
++    // install; rediscover the conventional imported-data folder each launch.
++    static bstring512 data_directory;
++    char *pref = SDL_GetPrefPath("", "Akhenaten");
++    if (!pref) {
++        return nullptr;
++    }
++    const std::string pref_path(pref);
++    SDL_free(pref);
++    const std::string marker = "/Library/";
++    const size_t marker_pos = pref_path.find(marker);
++    if (marker_pos == std::string::npos) {
++        return nullptr;
++    }
++    data_directory.printf("%.*s/Documents/GameData", (int)marker_pos, pref_path.c_str());
++    const std::filesystem::path campaign = std::filesystem::path(data_directory.c_str()) / "campaign.txt";
++    if (std::filesystem::exists(campaign)) {
++        return data_directory.c_str();
++    }
+     return nullptr;
+ }
+ 
+diff --git a/src/platform/platform_ios_overlay.mm b/src/platform/platform_ios_overlay.mm
+index 50205a4de..0518eaceb 100644
+--- a/src/platform/platform_ios_overlay.mm
++++ b/src/platform/platform_ios_overlay.mm
+@@ -16,8 +16,8 @@ namespace ios_overlay {
+ 
+ namespace {
+ 
+-// Forward declaration so the ObjC target can reach the C++ sheet helper.
+-void show_action_sheet(UIButton *source);
++// Forward declaration so the ObjC target can reach the C++ controls helper.
++void show_controls(UIButton *source);
+ 
+ } // namespace
+ 
+@@ -29,10 +29,13 @@ void show_action_sheet(UIButton *source);
+ 
+ @implementation EmeraldTabletOverlayTarget
+ - (void)showActionSheet:(UIButton *)sender {
+-    ios_overlay::show_action_sheet(sender);
++    ios_overlay::show_controls(sender);
+ }
+ @end
+ 
++@interface EmeraldTabletControlsController : UIViewController
++@end
++
+ namespace ios_overlay {
+ namespace {
+ 
+@@ -58,56 +61,135 @@ UIViewController *presenting_controller() {
+     return vc;
+ }
+ 
+-// Native action sheet: pause/resume, speed -, speed +, and a short help text.
+-void show_action_sheet(UIButton *source) {
++EmeraldTabletControlsController *g_controls_controller = nil;
++
++} // namespace
++} // namespace ios_overlay
++
++@implementation EmeraldTabletControlsController
++
++- (UIButton *)controlButtonWithTitle:(NSString *)title action:(SEL)action identifier:(NSString *)identifier {
++    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
++    button.translatesAutoresizingMaskIntoConstraints = NO;
++    button.accessibilityIdentifier = identifier;
++    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
++    button.titleLabel.adjustsFontSizeToFitWidth = YES;
++    button.titleLabel.minimumScaleFactor = 0.8;
++    button.titleLabel.lineBreakMode = NSLineBreakByClipping;
++    button.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
++    button.backgroundColor = UIColor.secondarySystemBackgroundColor;
++    button.layer.cornerRadius = 9;
++    [button setTitle:title forState:UIControlStateNormal];
++    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
++    [button.heightAnchor constraintEqualToConstant:48].active = YES;
++    return button;
++}
++
++- (void)loadView {
++    UIView *root = [UIView new];
++    root.backgroundColor = UIColor.systemBackgroundColor;
++    root.layoutMargins = UIEdgeInsetsMake(14, 14, 14, 14);
++    self.view = root;
++    self.preferredContentSize = CGSizeMake(340, 236);
++
++    UILabel *title = [UILabel new];
++    title.text = @"Game controls";
++    title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle2];
++    title.textAlignment = NSTextAlignmentCenter;
++
++    UIButton *slower = [self controlButtonWithTitle:@"Speed −"
++                                             action:@selector(speedDown)
++                                         identifier:@"emeraldtablet.speed-down"];
++    UIButton *pause = [self controlButtonWithTitle:@"Pause / Resume"
++                                            action:@selector(togglePause)
++                                        identifier:@"emeraldtablet.pause"];
++    UIButton *faster = [self controlButtonWithTitle:@"Speed +"
++                                             action:@selector(speedUp)
++                                         identifier:@"emeraldtablet.speed-up"];
++    UIButton *help = [self controlButtonWithTitle:@"Touch help"
++                                           action:@selector(showHelp)
++                                       identifier:@"emeraldtablet.help"];
++    UIButton *done = [self controlButtonWithTitle:@"Done"
++                                           action:@selector(done)
++                                       identifier:@"emeraldtablet.done"];
++    done.backgroundColor = UIColor.systemBlueColor;
++    [done setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
++
++    UIStackView *speed = [[UIStackView alloc] initWithArrangedSubviews:@[slower, faster]];
++    speed.axis = UILayoutConstraintAxisHorizontal;
++    speed.spacing = 8;
++    speed.distribution = UIStackViewDistributionFillEqually;
++
++    UIStackView *secondary = [[UIStackView alloc] initWithArrangedSubviews:@[help, done]];
++    secondary.axis = UILayoutConstraintAxisHorizontal;
++    secondary.spacing = 8;
++    secondary.distribution = UIStackViewDistributionFillEqually;
++
++    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, speed, pause, secondary]];
++    stack.translatesAutoresizingMaskIntoConstraints = NO;
++    stack.axis = UILayoutConstraintAxisVertical;
++    stack.spacing = 12;
++    [root addSubview:stack];
++    [NSLayoutConstraint activateConstraints:@[
++        [stack.leadingAnchor constraintEqualToAnchor:root.layoutMarginsGuide.leadingAnchor],
++        [stack.trailingAnchor constraintEqualToAnchor:root.layoutMarginsGuide.trailingAnchor],
++        [stack.topAnchor constraintEqualToAnchor:root.layoutMarginsGuide.topAnchor],
++        [stack.bottomAnchor constraintLessThanOrEqualToAnchor:root.layoutMarginsGuide.bottomAnchor],
++    ]];
++}
++
++- (void)togglePause {
++    events::emit(event_toggle_pause{1});
++}
++
++- (void)speedUp {
++    events::emit(event_change_gamespeed{true});
++}
++
++- (void)speedDown {
++    events::emit(event_change_gamespeed{false});
++}
++
++- (void)showHelp {
++    UIAlertController *help =
++        [UIAlertController alertControllerWithTitle:@"Touch controls"
++                                            message:@"Tap: select and press controls\n"
++                                                    @"Drag one finger: pan the map\n"
++                                                    @"Pinch: zoom\n"
++                                                    @"Long press or two-finger tap: inspect / cancel\n\n"
++                                                    @"Pencil mode (Options): Pencil selects and places; fingers pan and zoom."
++                                     preferredStyle:UIAlertControllerStyleAlert];
++    [help addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
++    [self presentViewController:help animated:YES completion:nil];
++}
++
++- (void)done {
++    [self dismissViewControllerAnimated:YES completion:^{
++        ios_overlay::g_controls_controller = nil;
++    }];
++}
++
++@end
++
++
++namespace ios_overlay {
++namespace {
++
++// A compact popover stays open after speed and pause actions so repeated
++// changes do not require reopening the three-dot control.
++void show_controls(UIButton *source) {
+     UIViewController *vc = presenting_controller();
+-    if (!vc) {
++    if (!vc || g_controls_controller.presentingViewController) {
+         return;
+     }
+ 
+-    UIAlertController *sheet =
+-        [UIAlertController alertControllerWithTitle:@"Game controls"
+-                                             message:nil
+-                                      preferredStyle:UIAlertControllerStyleActionSheet];
+-    sheet.popoverPresentationController.sourceView = source;
+-    sheet.popoverPresentationController.sourceRect = source.bounds;
+-
+-    [sheet addAction:[UIAlertAction actionWithTitle:@"Pause / Resume"
+-                                              style:UIAlertActionStyleDefault
+-                                            handler:^(UIAlertAction *action) {
+-                                                events::emit(event_toggle_pause{1});
+-                                            }]];
+-    [sheet addAction:[UIAlertAction actionWithTitle:@"Speed +"
+-                                              style:UIAlertActionStyleDefault
+-                                            handler:^(UIAlertAction *action) {
+-                                                events::emit(event_change_gamespeed{true});
+-                                            }]];
+-    [sheet addAction:[UIAlertAction actionWithTitle:@"Speed −"
+-                                              style:UIAlertActionStyleDefault
+-                                            handler:^(UIAlertAction *action) {
+-                                                events::emit(event_change_gamespeed{false});
+-                                            }]];
+-    [sheet addAction:[UIAlertAction actionWithTitle:@"Controls help"
+-                                              style:UIAlertActionStyleDefault
+-                                            handler:^(UIAlertAction *action) {
+-                                                UIAlertController *help =
+-                                                    [UIAlertController alertControllerWithTitle:@"Touch controls"
+-                                                                                        message:@"Tap: select and press UI controls\n"
+-                                                                                                @"Drag one finger: pan the map\n"
+-                                                                                                @"Pinch: zoom\n"
+-                                                                                                @"Long press or two-finger tap: inspect / cancel\n\n"
+-                                                                                                @"Apple Pencil mode (Options menu): Pencil selects and places; fingers pan and zoom; finger taps never change the city while Pencil mode is on."
+-                                                                                 preferredStyle:UIAlertControllerStyleAlert];
+-                                                [help addAction:[UIAlertAction actionWithTitle:@"OK"
+-                                                                                         style:UIAlertActionStyleDefault
+-                                                                                       handler:nil]];
+-                                                [vc presentViewController:help animated:YES completion:nil];
+-                                            }]];
+-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
+-                                              style:UIAlertActionStyleCancel
+-                                            handler:nil]];
+-
+-    [vc presentViewController:sheet animated:YES completion:nil];
++    EmeraldTabletControlsController *controls = [EmeraldTabletControlsController new];
++    controls.modalPresentationStyle = UIModalPresentationPopover;
++    controls.popoverPresentationController.sourceView = source;
++    controls.popoverPresentationController.sourceRect = source.bounds;
++    controls.popoverPresentationController.permittedArrowDirections = UIPopoverArrowDirectionAny;
++    g_controls_controller = controls;
++    [vc presentViewController:controls animated:YES completion:nil];
+ }
+ 
+ UIButton *g_overlay_button = nil;
+diff --git a/src/platform/platform_js.cpp b/src/platform/platform_js.cpp
+index 2673f4166..eac79a514 100644
+--- a/src/platform/platform_js.cpp
++++ b/src/platform/platform_js.cpp
+@@ -7,4 +7,7 @@ void __platform_open_url(pcstr url) { platform.open_url(url, ""); }
+ ANK_FUNCTION_1(__platform_open_url)
+ 
+ bool __platform_is_windows() { return platform.is_windows(); }
+-ANK_FUNCTION(__platform_is_windows)
+\ No newline at end of file
++ANK_FUNCTION(__platform_is_windows)
++
++bool __platform_is_ios() { return platform.is_ios(); }
++ANK_FUNCTION(__platform_is_ios)
+diff --git a/src/scripts/ui_dynasty_menu.js b/src/scripts/ui_dynasty_menu.js
+index b3e26a8bf..d5beca8f5 100644
+--- a/src/scripts/ui_dynasty_menu.js
++++ b/src/scripts/ui_dynasty_menu.js
+@@ -35,7 +35,7 @@ window_dinasty_menu {
+     pos [(sw(0) - px(24))/2, (sh(0) - px(21))/2]
+     allow_rmb_goback : true
+     ui {
+-        background_image: background({pack:PACK_UNLOADED, id:31})
++        background_image: background({pack:PACK_UNLOADED, id:31, scale:-1})
+         background      : outer_panel({size[24, 19]})
+ 
+         title       : text_center({pos[0, 20], size[px(24), 20], font:FONT_LARGE_BLACK_ON_LIGHT})
+@@ -43,7 +43,7 @@ window_dinasty_menu {
+         btnexplore  : button({margin{centerx: -135, top: 40 + 2 * 40}, size[270, 25], text[293, 6], font:FONT_NORMAL_BLACK_ON_LIGHT, onclick: dynasty_menu_btn_explore })
+         btnload     : button({margin{centerx: -135, top: 40 + 3 * 40}, size[270, 25], text[293, 2], font:FONT_NORMAL_BLACK_ON_LIGHT, onclick: show_window_by_id("file_dialog_load") })
+         btncustom   : button({margin{centerx: -135, top: 40 + 4 * 40}, size[270, 25], text[293, 3], font:FONT_NORMAL_BLACK_ON_LIGHT, onclick: dynasty_menu_btn_custom })
+-        btnback     : button({margin{centerx: -135, top: 40 + 5 * 40}, size[270, 25], text[293, 4], font:FONT_NORMAL_BLACK_ON_LIGHT, onclick: window_go_back })
++        btnback     : button({margin{centerx: -135, top: 40 + 5 * 40}, size[270, 25], text[293, 4], font:FONT_NORMAL_BLACK_ON_LIGHT, onclick: show_window_by_id("window_player_selection") })
+     }
+ }
+ 
+diff --git a/src/scripts/ui_file_dialog_delete.js b/src/scripts/ui_file_dialog_delete.js
+index 64c0d847f..9101653bc 100644
+--- a/src/scripts/ui_file_dialog_delete.js
++++ b/src/scripts/ui_file_dialog_delete.js
+@@ -77,6 +77,8 @@ file_dialog_delete {
+     error_flash_start_ms: 0
+ 
+     ui: baseui(file_dialog_chrome_base, {
++        filename: input({ pos: [16, 44], size: [20, 2], font: FONT_NORMAL_WHITE_ON_DARK, max_length: 63,
++                          allow_punctuation: 1, autofocus: false, oninput_event: "on_filename_input" })
+         files: scrollable_list({ pos: [16, 76], size: [20, 13], view_items: 12
+                                  use_file_finder: true
+                                  dir: "Save/"
+diff --git a/src/scripts/ui_file_dialog_load.js b/src/scripts/ui_file_dialog_load.js
+index f79386880..21a2080b7 100644
+--- a/src/scripts/ui_file_dialog_load.js
++++ b/src/scripts/ui_file_dialog_load.js
+@@ -94,6 +94,8 @@ file_dialog_load {
+     error_flash_title_id: 2
+ 
+     ui: baseui(file_dialog_chrome_base, {
++        filename: input({ pos: [16, 44], size: [20, 2], font: FONT_NORMAL_WHITE_ON_DARK, max_length: 63,
++                          allow_punctuation: 1, autofocus: false, oninput_event: "on_filename_input" })
+         files: scrollable_list({ pos: [16, 76], size: [20, 13], view_items: 12
+                                  use_file_finder: true
+                                  dir: "Save/"
+diff --git a/src/scripts/ui_file_dialog_load_scenario.js b/src/scripts/ui_file_dialog_load_scenario.js
+index 1ecfbc8c1..a1330352c 100644
+--- a/src/scripts/ui_file_dialog_load_scenario.js
++++ b/src/scripts/ui_file_dialog_load_scenario.js
+@@ -86,6 +86,8 @@ file_dialog_load_scenario {
+     error_flash_title_id: 2
+ 
+     ui: baseui(file_dialog_chrome_base, {
++        filename: input({ pos: [16, 44], size: [20, 2], font: FONT_NORMAL_WHITE_ON_DARK, max_length: 63,
++                          allow_punctuation: 1, autofocus: false, oninput_event: "on_filename_input" })
+         files: scrollable_list({ pos: [16, 76], size: [20, 13], view_items: 12
+                                  use_file_finder: true
+                                  dir: "Maps/"
+diff --git a/src/scripts/ui_main_menu.js b/src/scripts/ui_main_menu.js
+index 0bb62a18e..972f8f328 100644
+--- a/src/scripts/ui_main_menu.js
++++ b/src/scripts/ui_main_menu.js
+@@ -36,7 +36,7 @@ function main_menu_update_now(window) {
+ [es=window]
+ window_main_menu {
+ 	ui {
+-		background    : { type:"background", path:"pharaoh_unloaded/title_00001" }
++		background    : { type:"background", path:"pharaoh_unloaded/title_00001", scale:-1 }
+ 
+ 		continue_game : large_button({ pos:mbutton(0), size[256, 25], text[13, 5], onclick: main_menu_continue_game })
+ 		select_player : large_button({ pos:mbutton(1), size[256, 25], text[30, 0], onclick: show_window_by_id("window_player_selection") })
+@@ -119,6 +119,9 @@ function main_menu_on_init(window) {
+     __sound_city_init()
+ 
+     window.continue_game.readonly = !main_menu_can_continue()
++    // iOS owns application termination; the Home gesture replaces a desktop
++    // Quit command and gives the lifecycle/save hooks a clean path.
++    window.quit_game.enabled = !__platform_is_ios()
+ 
+ 	if (!game.is_integral_tests && github_is_active()) {
+ 		github_get_recent_commits_async("dalerank", "Akhenaten")
+diff --git a/src/scripts/ui_new_career.js b/src/scripts/ui_new_career.js
+index 9f98eee4f..c07673d1e 100644
+--- a/src/scripts/ui_new_career.js
++++ b/src/scripts/ui_new_career.js
+@@ -3,7 +3,7 @@ window_new_career {
+     pos [(sw(0) - px(24))/2, (sh(0) - px(22))/2]
+     allow_rmb_goback : true
+     ui {
+-        background_image: background({pack:PACK_UNLOADED, id:31})
++        background_image: background({pack:PACK_UNLOADED, id:31, scale:-1})
+         background : outer_panel({size[24, 22]})
+         title      : text_center({pos[0, 12], size[px(24), 20], font:FONT_LARGE_BLACK_ON_LIGHT, text[31, 0]})
+         player_name: input({margin{left:32, top:48}, size[20, 2], font:FONT_NORMAL_WHITE_ON_DARK, max_length:31, allow_punctuation:1})
+diff --git a/src/scripts/ui_player_selection.js b/src/scripts/ui_player_selection.js
+index 91179b1a1..49e453db7 100644
+--- a/src/scripts/ui_player_selection.js
++++ b/src/scripts/ui_player_selection.js
+@@ -36,7 +36,7 @@ function player_selection_proceed() {
+ }
+ 
+ function player_selection_btn_back() {
+-    window_go_back()
++    emit event_show_main_menu { play_intro: false }
+ }
+ 
+ [es=window]
+@@ -46,7 +46,7 @@ window_player_selection {
+     dynasty_name_changed : ""
+     need_refresh_list : false
+     ui {
+-        background_image : background({pack:PACK_UNLOADED, id:29})
++        background_image : background({pack:PACK_UNLOADED, id:29, scale:-1})
+         background       : outer_panel({size[24, 21]})
+ 
+         title    : text_center({pos[0, 16], size[px(24), 20], font:FONT_LARGE_BLACK_ON_LIGHT, text[292, 3]})
+diff --git a/src/scripts/ui_popup_dialog.js b/src/scripts/ui_popup_dialog.js
+index 71cc7c985..97906f2c8 100644
+--- a/src/scripts/ui_popup_dialog.js
++++ b/src/scripts/ui_popup_dialog.js
+@@ -12,7 +12,7 @@ window_popup_dialog_yesno {
+                            multiline:true, wrap:px(30)})
+         btn_yes    : image_button({margin:{centerx:-60, bottom:-60}, size:[39, 26], pack:PACK_GENERAL, id:96 })
+         btn_no     : image_button({margin:{centerx:20, bottom:-60}, size:[39, 26], pack:PACK_GENERAL, id:96, offset:4 })
+-        label_tip  : text({margin:{left:20, bottom:-40}, font: FONT_NORMAL_BLACK_ON_LIGHT, align:"center"})
++        label_tip  : text({margin:{left:20, bottom:-40}, size:[px(30) - 40, 20], font: FONT_NORMAL_BLACK_ON_LIGHT, align:"center"})
+     }
+ }
+ 
+@@ -26,6 +26,6 @@ window_popup_dialog_ok {
+                            multiline:true, wrap:px(30)})
+         btn_yes    : image_button({margin{centerx:-20, bottom:-60}, size[39, 26], pack:PACK_GENERAL, id:96 })
+         btn_no     : dummy({pos[0, 0], size[1, 1], enabled: false})
+-        label_tip  : text({margin{bottom:-40}, align:"center", font: FONT_NORMAL_BLACK_ON_LIGHT})
++        label_tip  : text({margin{left:20, bottom:-40}, size:[px(30) - 40, 20], align:"center", font: FONT_NORMAL_BLACK_ON_LIGHT})
+     }
+ }
+diff --git a/src/scripts/ui_scenario_selection_campaign.js b/src/scripts/ui_scenario_selection_campaign.js
+index 05a5f6350..9a5e9309c 100644
+--- a/src/scripts/ui_scenario_selection_campaign.js
++++ b/src/scripts/ui_scenario_selection_campaign.js
+@@ -166,6 +166,10 @@ function campaign_btn_play() {
+     window_show_by_id("window_scenario_selection")
+ }
+ 
++function campaign_btn_exit() {
++    window_show_by_id("window_dinasty_menu")
++}
++
+ [es=window]
+ window_scenario_selection_campaign {
+     period_hover : -1
+@@ -203,9 +207,9 @@ window_scenario_selection_campaign {
+         campaign_hover_body : text({ pos[545, 250], size[265, 200], wrap:px(16), font:FONT_NORMAL_BLACK_ON_DARK, multiline:true, clip_area:true })
+ 
+         // Exit / Play along the bottom edge of the dialog.
+-        btn_exit : image_button({ pos[215, 590], size[31, 20], pack:PACK_GENERAL, id:90, offset:8, onclick: window_go_back })
++        btn_exit : image_button({ pos[215, 590], size[31, 20], pack:PACK_GENERAL, id:90, offset:8, onclick: campaign_btn_exit })
+         lbl_exit : text({ pos[250, 592], text[44, 217], font:FONT_NORMAL_BLACK_ON_LIGHT })
+-        btn_exit_hit : button({ pos[215, 605], size[110, 30], text:"", hbody:false, border:false, onclick: window_go_back })
++        btn_exit_hit : button({ pos[215, 605], size[110, 30], text:"", hbody:false, border:false, onclick: campaign_btn_exit })
+ 
+         lbl_play : text({ pos[735, 590], text[294, 37], font:FONT_NORMAL_BLACK_ON_LIGHT })
+         btn_play : image_button({ pos[780, 585], size[27, 27], pack:PACK_GENERAL, id:193, offset:4, onclick: campaign_btn_play })
+diff --git a/src/scripts/ui_sound_options_window.js b/src/scripts/ui_sound_options_window.js
+index 8df6d0835..8e89c2b2e 100644
+--- a/src/scripts/ui_sound_options_window.js
++++ b/src/scripts/ui_sound_options_window.js
+@@ -116,24 +116,24 @@ sound_options_window {
+         title              : header({pos[10, 10], size[px(24), 20], text[46, 0], align:"center"})
+ 
+         arrow_music_down   : arrowdown({pos[264, 68], tiny:false, allow_repeat: true
+-                                        onclick: function() { sound_options_music_step(-1) } })
++                                        onclick: function() { sound_options_music_step(-10) } })
+         arrow_music_up     : arrowup({pos[288, 68], tiny:false, allow_repeat: true
+-                                        onclick: function() { sound_options_music_step(1) } })
+-
+-        arrow_speech_down  : arrowdown({pos[264, 98], tiny:false
+-                                        onclick: function() { sound_options_speech_step(-1) } })
+-        arrow_speech_up    : arrowup({pos[288, 98], tiny:false
+-                                         onclick: function() { sound_options_speech_step(1) } })
+-
+-        arrow_effects_down : arrowdown({pos[264, 128], tiny:false
+-                                         onclick: function() { sound_options_effects_step(-1) } })
+-        arrow_effects_up   : arrowup({pos[288, 128], tiny:false
+-                                        onclick: function() { sound_options_effects_step(1) } })
+-
+-        arrow_city_down    : arrowdown({pos[264, 158], tiny:false
+-                                        onclick: function() { sound_options_city_step(-1) } })
+-        arrow_city_up      : arrowup({pos[288, 158], tiny:false
+-                                        onclick: function() { sound_options_city_step(1) } })
++                                        onclick: function() { sound_options_music_step(10) } })
++
++        arrow_speech_down  : arrowdown({pos[264, 98], tiny:false, allow_repeat:true
++                                        onclick: function() { sound_options_speech_step(-10) } })
++        arrow_speech_up    : arrowup({pos[288, 98], tiny:false, allow_repeat:true
++                                         onclick: function() { sound_options_speech_step(10) } })
++
++        arrow_effects_down : arrowdown({pos[264, 128], tiny:false, allow_repeat:true
++                                         onclick: function() { sound_options_effects_step(-10) } })
++        arrow_effects_up   : arrowup({pos[288, 128], tiny:false, allow_repeat:true
++                                        onclick: function() { sound_options_effects_step(10) } })
++
++        arrow_city_down    : arrowdown({pos[264, 158], tiny:false, allow_repeat:true
++                                        onclick: function() { sound_options_city_step(-10) } })
++        arrow_city_up      : arrowup({pos[288, 158], tiny:false, allow_repeat:true
++                                        onclick: function() { sound_options_city_step(10) } })
+ 
+         lbl_quiet          : text({pos[16, 48], text[46, 10], font: FONT_SMALL_PLAIN})
+         lbl_loud           : text({pos[280, 48], text[46, 11], font: FONT_SMALL_PLAIN})
+diff --git a/src/widget/widget_city.cpp b/src/widget/widget_city.cpp
+index 2a4630a3c..0aab2cb07 100644
+--- a/src/widget/widget_city.cpp
++++ b/src/widget/widget_city.cpp
+@@ -1209,6 +1209,17 @@ void screen_city_t::handle_first_touch(tile2i tile) {
+     const touch_t * first = get_earliest_touch();
+     e_building_type type = g_city_planner.build_type;
+ 
++    if (touch_poll_long_press()) {
++        g_scroll.drag_end();
++        capture_input = false;
++        if (type != BUILDING_NONE) {
++            g_city_planner.construction_cancel();
++        } else if (allow_building_info(tile)) {
++            events::emit(event_show_tile_info{ tile, false, SOURCE_LOCATION });
++        }
++        return;
++    }
++
+     if (touch_was_click(first)) {
+         if (handle_cancel_construction_button(first) || handle_legion_click(tile) || handle_warship_click(tile) || handle_transport_click(tile)) {
+             return;
+@@ -1278,18 +1289,33 @@ void screen_city_t::handle_first_touch(tile2i tile) {
+     }
+ }
+ 
+-static void handle_last_touch(void) {
++bool screen_city_t::handle_last_touch(tile2i tile) {
+     const touch_t * last = get_latest_touch();
+     if (!last->in_use)
+-        return;
+-    if (touch_was_click(last)) {
+-        g_city_planner.construction_cancel();
+-        return;
++        return false;
++    if (touch_was_two_finger_tap()) {
++        touch_consume_current_gesture();
++        g_scroll.drag_end();
++        capture_input = false;
++        if (g_city_planner.build_type != BUILDING_NONE) {
++            g_city_planner.construction_cancel();
++        } else if (allow_building_info(tile)) {
++            events::emit(event_show_tile_info{ tile, false, SOURCE_LOCATION });
++        }
++        return true;
+     }
+ 
+-    if (touch_not_click(last)) {
++    const touch_gesture gesture = touch_get_two_finger_gesture();
++    if (gesture == TOUCH_GESTURE_ZOOM) {
++        g_scroll.drag_end();
+         handle_touch_zoom(get_earliest_touch(), last);
++        return true;
++    }
++    g_zoom.end_touch();
++    if (gesture == TOUCH_GESTURE_UNDECIDED) {
++        return true;
+     }
++    return false;
+ }
+ 
+ void screen_city_t::handle_touch() {
+@@ -1312,8 +1338,9 @@ void screen_city_t::handle_touch() {
+         g_scroll.restore_margins();
+     }
+ 
+-    handle_last_touch();
+-    handle_first_touch(current_tile);
++    if (!handle_last_touch(current_tile)) {
++        handle_first_touch(current_tile);
++    }
+ 
+     if (first->has_ended) {
+         capture_input = false;
+diff --git a/src/widget/widget_city.h b/src/widget/widget_city.h
+index 864985f84..d6d1ebd43 100644
+--- a/src/widget/widget_city.h
++++ b/src/widget/widget_city.h
+@@ -30,6 +30,7 @@ struct screen_city_t {
+     void handle_touch_scroll(const touch_t *t, bool force_capture_input);
+     void clear_current_tile();
+     void handle_first_touch(tile2i tile);
++    bool handle_last_touch(tile2i tile);
+     void handle_touch();
+     void handle_mouse(const mouse *m);
+     void handle_input(const mouse *m, const hotkeys *h);

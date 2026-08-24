@@ -1,0 +1,174 @@
+From: Emerald Tablet <emeraldtablet@local>
+Subject: [PATCH] saves: remap legacy temple-complex images before render
+Purpose: Load original Pharaoh saves whose three-part temple complexes retain obsolete image IDs without crashing or drawing black gaps.
+Affected platforms: Emerald Tablet Apple builds; the guarded load path is platform-independent.
+Upstream status: Emerald Tablet downstream only; no upstream proposal.
+Tests: 184_legacy_temple_complex_remap constructs the exact legacy three-record shape, verifies all current images, and exercises the invalid-image guard. The private Sais fixture is validation-only and is never added to this patch.
+Reason: Original saves represent all three temple-complex sections with one building type. Akhenaten refreshes only its newer typed representation, leaving an obsolete image ID that crashes animation rendering.
+
+diff --git a/src/building/building_animation.cpp b/src/building/building_animation.cpp
+--- a/src/building/building_animation.cpp
++++ b/src/building/building_animation.cpp
+@@ -11,6 +11,10 @@ int building::animation_offset(int image_id, int grid_offset, int max_frames, in
+     }
+ 
+     const image_t* img = image_get(image_id);
++    if (!img) {
++        return 0;
++    }
++
+     if (!max_frames) {
+         max_frames = img->animation.num_sprites;
+     }
+diff --git a/src/building/building_temple_complex.cpp b/src/building/building_temple_complex.cpp
+--- a/src/building/building_temple_complex.cpp
++++ b/src/building/building_temple_complex.cpp
+@@ -499,6 +499,43 @@ void building_temple_complex::update_map_orientation(int orientation) {
+ 
+         map_building_tiles_add(id(), tile(), current_params().building_size, image_id, TERRAIN_BUILDING);
+     }
++
++    // Original Pharaoh saves store all three temple-complex sections as the
++    // same building type. Akhenaten uses dedicated altar/oracle types, so its
++    // normal post-load path only refreshes the first section. Refresh an exact
++    // legacy three-section chain in place without rewriting the source save.
++    if (base.next_part_building_id <= 0 || base.next_part_building_id >= MAX_BUILDINGS) {
++        return;
++    }
++
++    building *middle = base.next();
++    if (middle->type != type() || middle->prev_part_building_id != id()
++        || middle->next_part_building_id <= 0 || middle->next_part_building_id >= MAX_BUILDINGS) {
++        return;
++    }
++
++    building *last = middle->next();
++    if (last->type != type() || last->prev_part_building_id != middle->id
++        || last->next_part_building_id != 0) {
++        return;
++    }
++
++    const int orientation_rel = g_camera.relative_orientation(orientation);
++    const int orientation_binary = (1 + orientation_rel) % 2;
++    building *parts[] = { &base, middle, last };
++    const bool upgraded[] = {
++        false,
++        has_upgrade(etc_upgrade_altar),
++        has_upgrade(etc_upgrade_oracle),
++    };
++
++    for (int part = 0; part < 3; ++part) {
++        const int part_image = get_temple_complex_part_image(type(), part, orientation_binary, upgraded[part]);
++        if (part_image > 0) {
++            map_building_tiles_add(parts[part]->id, parts[part]->tile, parts[part]->size,
++                                   part_image, TERRAIN_BUILDING);
++        }
++    }
+ }
+ 
+ tile2i temple_complex_part_target(building *main, int part) {
+diff --git a/src/js/js_test_game.cpp b/src/js/js_test_game.cpp
+--- a/src/js/js_test_game.cpp
++++ b/src/js/js_test_game.cpp
+@@ -31,6 +31,7 @@
+ #include "building/construction_blessing.h"
+ #include "city/city_recorded_paths.h"
+ #include "grid/grid.h"
++#include "grid/image.h"
+ #include "grid/terrain.h"
+ #include "grid/water.h"
+ #include "grid/building.h"
+@@ -1061,6 +1062,59 @@ static int __test_building_create(int type, int x, int y) {
+ }
+ ANK_FUNCTION_3(__test_building_create);
+ 
++static int __test_legacy_temple_complex_remap() {
++    const e_building_type type = BUILDING_TEMPLE_COMPLEX_SETH;
++    tile2i origin(g_scenario.map.width / 2 - 3, g_scenario.map.height / 2);
++    building *parts[] = {
++        building_create(type, origin, 0),
++        building_create(type, origin.shifted(3, 0), 0),
++        building_create(type, origin.shifted(6, 0), 0),
++    };
++
++    for (building *part : parts) {
++        if (!part || part->id <= 0) {
++            return 0;
++        }
++        part->state = BUILDING_STATE_VALID;
++        part->size = 3;
++    }
++
++    parts[0]->next_part_building_id = parts[1]->id;
++    parts[1]->prev_part_building_id = parts[0]->id;
++    parts[1]->next_part_building_id = parts[2]->id;
++    parts[2]->prev_part_building_id = parts[1]->id;
++
++    constexpr int legacy_image_id = 15804;
++    for (building *part : parts) {
++        map_building_tiles_add(part->id, part->tile, part->size, legacy_image_id, TERRAIN_BUILDING);
++    }
++
++    auto *complex = parts[0]->dcast_temple_complex();
++    if (!complex) {
++        return 0;
++    }
++    complex->update_map_orientation(0);
++
++    const int orientation = (5 - (complex->runtime_data().variant / 2)) % 4;
++    const int orientation_binary = (1 + g_camera.relative_orientation(orientation)) % 2;
++    bool resources_available = true;
++    for (int part = 0; part < 3; ++part) {
++        const int expected = building_temple_complex::get_temple_complex_part_image(type, part,
++                                                                                    orientation_binary, 0);
++        if (expected <= 0 || map_image_at(parts[part]->tile) != expected) {
++            return 0;
++        }
++        resources_available = resources_available && image_get(expected);
++    }
++
++    parts[0]->play_animation = true;
++    if (parts[0]->animation_offset(65000, parts[0]->tile.grid_offset(), 0, 0) != 0) {
++        return 0;
++    }
++    return resources_available ? 1 : 2;
++}
++ANK_FUNCTION(__test_legacy_temple_complex_remap);
++
+ color __test_color_roundtrip(color c) {
+     return c;
+ }
+diff --git a/tests/184_legacy_temple_complex_remap.js b/tests/184_legacy_temple_complex_remap.js
+new file mode 100644
+--- /dev/null
++++ b/tests/184_legacy_temple_complex_remap.js
+@@ -0,0 +1,29 @@
++// Original Pharaoh saves represent a temple complex as three linked records
++// of the same type. Their map images must be refreshed before rendering.
++
++var __test184_ok = false
++
++function run_test() {
++    test_reload_city_session("data/default.map")
++
++    var result = __test_legacy_temple_complex_remap()
++    if (!result) {
++        __log_info_native("[test:184] legacy temple-complex remap failed")
++        __test_signal_ready()
++        return
++    }
++
++    if (result == 2) {
++        __log_marker("legacy_temple_complex_remap_skipped_no_resources")
++    } else {
++        __test_pump_frames(4)
++        __log_marker("legacy_temple_complex_remap_ok")
++    }
++
++    __test184_ok = true
++    __test_signal_ready()
++}
++
++function check_valid() {
++    return __test184_ok
++}

@@ -4,6 +4,7 @@
 set -euo pipefail
 
 APP_DIR="${1:-}"
+EXPECTED_BUNDLE_ID="${IOS_EXPECTED_BUNDLE_ID:-mt.dalerank.akhenaten}"
 if [[ -z "$APP_DIR" || ! -d "$APP_DIR" ]]; then
     echo "usage: audit-ios-app.sh <path-to.app>" >&2
     exit 1
@@ -45,8 +46,22 @@ fi
 echo "== Info.plist =="
 plutil -p "$PLIST" | head -40
 CFID=$(plutil -extract CFBundleIdentifier raw "$PLIST" 2>/dev/null || echo "")
-if [[ "$CFID" != "mt.dalerank.akhenaten" ]]; then
+if [[ "$CFID" != "$EXPECTED_BUNDLE_ID" ]]; then
     echo "FAIL: unexpected bundle identifier '$CFID'" >&2
+    fail=1
+fi
+if [[ "$(plutil -extract UIApplicationSupportsIndirectInputEvents raw "$PLIST" 2>/dev/null || echo false)" != "true" ]]; then
+    echo "FAIL: indirect mouse/trackpad input support is not enabled" >&2
+    fail=1
+fi
+
+echo "== App icon =="
+if [[ ! -f "$APP_DIR/Assets.car" ]]; then
+    echo "FAIL: compiled asset catalog is missing" >&2
+    fail=1
+fi
+if ! plutil -extract CFBundleIcons xml1 -o - "$PLIST" 2>/dev/null | grep -q 'AppIcon'; then
+    echo "FAIL: Info.plist does not declare AppIcon" >&2
     fail=1
 fi
 

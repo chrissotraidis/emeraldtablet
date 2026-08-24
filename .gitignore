@@ -53,6 +53,7 @@ akhenaten-log.txt
 imgui.ini
 Save/
 saves/
+/assets/screenshots/
 docs/validation/**/*.png
 docs/validation/**/*.jpg
 docs/validation/**/*.jpeg

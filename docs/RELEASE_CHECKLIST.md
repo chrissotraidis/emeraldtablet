@@ -12,13 +12,19 @@ for the next step.
 
 ## 2. Builds
 
-- [ ] `scripts/apply-patches.sh` applies 0001-0006 cleanly
+- [ ] `scripts/apply-patches.sh` applies 0001-0017 cleanly (an unchanged
+      second run reports that the queue is already applied without touching
+      engine source timestamps)
 - [ ] `scripts/build-macos.sh` succeeds
 - [ ] `scripts/audit-macos-app.sh build/macos/akhenaten.app` passes
       (arm64, minos 11.7, system frameworks only)
 - [ ] `scripts/build-ios-sim.sh` succeeds
 - [ ] `scripts/audit-ios-app.sh .../akhenaten.app` passes
-      (arm64, iOS 15.0 Simulator, iOS-valid frameworks only)
+      (arm64, iOS 15.0 Simulator, iOS-valid frameworks only, compiled AppIcon,
+      indirect-input support)
+- [ ] When testing hardware, `scripts/build-ios-device.sh` succeeds with a
+      matching local profile/certificate and the signed app passes strict
+      verification; keep signing material and the app ignored/local
 
 ## 3. Evidence gates
 
@@ -26,9 +32,16 @@ for the next step.
       pass count (upstream flaky tests are documented, not hidden)
 - [ ] G0-G6 evidence present in `docs/validation/` (summary in docs, raw in
       ignored `artifacts/private/`)
-- [ ] G7/G8 physical gates explicitly marked HUMAN (not claimed)
+- [ ] G7 is explicitly HUMAN; G8 deployment, live-city render, touch/Pencil
+      navigation, construction/cancellation, Save Game flow, preservation-safe
+      updates, and container migration are measured, while audible output,
+      lifecycle interruption, and sustained performance are not claimed
 
 ## 4. Packaging
+
+- [ ] Verify the approved opaque 1024×1024 Emerald Tablet source icon is present
+      at `assets/ios/AppIcon.png` and the packaged app contains `Assets.car` plus
+      iPhone/iPad AppIcon renditions
 
 - [ ] `scripts/package-macos-dmg.sh` produces a data-free `.dmg`
 - [ ] `scripts/package-ios-ipa.sh` produces an unsigned data-free `.ipa`
@@ -44,7 +57,8 @@ for the next step.
 - [ ] `scripts/verify-release-candidate.sh` passes (local == origin/main ==
       GitHub API main; release dir data-free)
 - [ ] README + docs updated (`INSTALL_MACOS.md`, `INSTALL_IPA.md`,
-      `COMPATIBILITY.md`, `RIGHTS_AND_LICENSES.md`)
+      `COMPATIBILITY.md`, `RIGHTS_AND_LICENSES.md`, and the current G8 tech-debt
+      resolution/recheck status)
 - [ ] AGPL + third-party notices present; corresponding-source link accurate
 
 ## 6. Publication (only when authorized)

@@ -47,13 +47,15 @@ Pharaoh.exe
 *.bik
 *.smk
 
-# Local saves, logs, screenshots, and private evidence captures.
+# Local saves, logs, screenshots, and private evidence captures. The one
+# explicitly approved public README image is allowlisted below.
 *.log
 akhenaten-log.txt
 imgui.ini
 Save/
 saves/
-/assets/screenshots/
+/assets/screenshots/*
+!/assets/screenshots/emerald-tablet-gameplay-ipad.png
 docs/validation/**/*.png
 docs/validation/**/*.jpg
 docs/validation/**/*.jpeg

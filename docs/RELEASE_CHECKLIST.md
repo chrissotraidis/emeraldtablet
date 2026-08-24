@@ -44,7 +44,9 @@ for the next step.
       iPhone/iPad AppIcon renditions
 
 - [ ] `scripts/package-macos-dmg.sh` produces a data-free `.dmg`
-- [ ] `scripts/package-ios-ipa.sh` produces an unsigned data-free `.ipa`
+- [ ] `scripts/package-ios-ipa.sh` packages an iPhoneOS app, rejects Simulator
+      products, removes maintainer signing material, and produces an unsigned
+      data-free `.ipa`
 - [ ] `scripts/generate-source-manifest.sh` writes `SOURCE-MANIFEST.txt`
       (wrapper commit, engine pin, patch hashes, dependency versions,
       artifact SHA-256)
@@ -64,5 +66,5 @@ for the next step.
 ## 6. Publication (only when authorized)
 
 - [ ] `git push origin main` and confirm the SHA triple-match
-- [ ] If a hosted release is later authorized, re-run the verifier against
-      the downloaded bytes
+- [ ] For a hosted release, download the IPA and checksum again, verify the
+      bytes match, and repeat the data/signing-material audit

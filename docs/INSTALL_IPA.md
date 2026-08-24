@@ -1,32 +1,39 @@
 # Install Emerald Tablet on iOS or iPadOS
 
-The unsigned IPA is a **developer-preview, sideloading artifact**. It is not
-an App Store or TestFlight release. Installing it requires a Mac with Xcode
-and a free Apple ID for a 7-day local signing session (or your development
-team for longer sessions).
+The published unsigned IPA is an arm64 **developer-preview sideloading
+artifact** for physical iPhone and iPad. It is not an App Store, TestFlight, or
+AltStore PAL release. A sideloading tool must re-sign it with your Apple ID.
 
 ## What you need
 
-- macOS with Xcode (the published unsigned IPA is a Simulator artifact; a
-  physical-device build is produced separately with a development team)
+- [The preview 0.1.0 build 1 IPA](https://github.com/chrissotraidis/emeraldtablet/releases/tag/v0.1.0-preview.1)
+- A Mac or Windows PC running AltServer and AltStore Classic, or another
+  compatible personal re-signing workflow
 - Your own legally obtained Pharaoh + Cleopatra folder for the in-app import
 - Optional trusted Akhenaten `.sgx` mods stored in Files
-- The IPA plus a way to install it (see below)
+- Developer Mode enabled on the device when iOS requests it
 
-## Install on a Simulator
+With a free Apple ID, AltStore Classic normally requires the app to be
+refreshed every seven days and applies Apple's limit on active sideloaded apps.
+Paid Apple Developer accounts have longer signing periods.
 
-```sh
-xcrun simctl install "<UDID>" path/to/EmeraldTablet-iOS-<commit>.ipa
-```
+## Install the published IPA
 
-The IPA uses the `Payload/` layout, so you can also unzip it and install the
-contained `.app` directly.
+1. Install AltServer on a Mac or Windows PC and use it to install **AltStore
+   Classic** on the device.
+2. Download the Emerald Tablet IPA from the GitHub Release to the device.
+3. Open AltStore Classic, choose **My Apps → +**, and select the IPA.
+4. Sign in with the Apple ID used by AltServer and wait for installation to
+   finish.
+5. Enable Developer Mode if iOS asks, then launch Emerald Tablet.
 
-## Install on a physical device
+AltStore PAL cannot install this arbitrary unsigned IPA and does not replace
+AltServer for this release.
 
-The unsigned IPA cannot be installed on a physical iPhone/iPad as-is. A local
-development build can be produced with an installed development profile and
-matching certificate:
+## Build and install directly with Xcode
+
+A local development build can instead be produced with an installed
+development profile and matching certificate:
 
 ```sh
 export IOS_PROVISIONING_PROFILE="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/<uuid>.mobileprovision"

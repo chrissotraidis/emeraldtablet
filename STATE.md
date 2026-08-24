@@ -20,7 +20,7 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
 | G6 — Compatibility matrix | CORE DONE (developer-preview subset) | 22/22 sampled maps load; cross-device Akhenaten format-189 saves load. Both private original-save samples are unsupported for play: Sais converts but retains broken map/routing state on iPad, while Alexandria crashes in legacy religion-supply state at population 58,822. Complete campaign and broad save compatibility remain unclaimed. `docs/validation/g6-compatibility-matrix.md`, `docs/COMPATIBILITY.md` |
 | G7 — Physical iPhone | HUMAN GATE | No iPhone is attached. |
 | G8 — Physical iPad and Apple Pencil | PARTIAL / PATCH 0017 PHYSICALLY ACCEPTED | Physical acceptance confirms Pencil movement, long-press construction cancellation, native speed controls, Hunting Lodge/Road/Granary/Bazaar placement, and Save Game flow. The signed app remains installed with saves and preferences preserved byte-for-byte. Audible output, lifecycle interruption, sustained performance, and broader play remain human gates. `docs/validation/g8-physical-ipad.md` |
-| G9 — Release engineering | CORE DONE (local developer-preview artifacts) | Self-contained macOS dmg + unsigned data-free IPA built and verified; source manifest with pin/patch hashes/dependency versions/artifact SHA-256; install/compatibility/release docs; release verifier (local == origin/main == GitHub API main); download-back-style data-free scans. Remains: hosted release (not authorized), naming/trademark/legal review (human gate). `docs/RELEASE_CHECKLIST.md`, `docs/COMPATIBILITY.md`, `docs/INSTALL_*` |
+| G9 — Release engineering | FIRST IPA AUTHORIZED / CANDIDATE VERIFIED | The first public candidate is an unsigned arm64 iPhoneOS IPA for personal re-signing, not the previous Simulator-only package. Packaging rejects Simulator input and removes the maintainer signature/profile. The candidate is data-free, ZIP-valid, versioned 0.1.0 build 1, and ready for the authorized GitHub prerelease. Naming/trademark/legal review remains a human gate for broader distribution. `docs/RELEASE_CHECKLIST.md`, `docs/COMPATIBILITY.md`, `docs/INSTALL_*` |
 
 ## Pinned inputs
 
@@ -58,8 +58,30 @@ and iPad mini / 11-inch / 13-inch on iOS 18.5 and 26.5. About 57 GiB free.
   audit. The expanded hermetic suite reports `195 passed, 2 failed`; the two
   failures are the already documented timing-sensitive kingdom-favour tests
   `109` and `126`, while the three downstream synthetic regressions pass.
-- Publication remains source-first. No GitHub Release, App Store/TestFlight
-  submission, public binary upload, or repository-visibility change is implied.
+- Public binary publication was subsequently authorized for the first unsigned
+  developer-preview IPA. App Store/TestFlight submission and repository-
+  visibility changes remain separate and are not implied.
+
+### 2026-08-24 — approved README hero and first IPA candidate
+
+- The maintainer explicitly approved one physical-iPad gameplay capture for
+  public use. It is allowlisted as
+  `assets/screenshots/emerald-tablet-gameplay-ipad.png`, placed directly below
+  the README badges, and described without implying rights to original art.
+- The README now follows HarkinianPad's public structure: install status,
+  concise setup, first launch, accepted controls, measured compatibility,
+  reproducibility, FAQ, project map, and legal boundary. iPadOS leads the
+  product framing; iPhone and macOS limitations remain explicit.
+- `package-ios-ipa.sh` now requires an iPhoneOS app, rejects Simulator input,
+  removes `_CodeSignature` and `embedded.mobileprovision`, and stamps preview
+  version `0.1.0` build `1` before packaging.
+- Candidate `EmeraldTablet-0.1.0-preview.1-unsigned.ipa` is an arm64 iPhoneOS
+  package targeting iOS 15.0. Its ZIP integrity and data/signing exclusions
+  pass. SHA-256:
+  `9acc46de667c99681c15f39789321102bce2ca86980e67d225335398d2107372`.
+- This proves source/package integrity only. Installation still requires the
+  user's own re-signing workflow and game data; remaining physical hardware
+  gates are unchanged.
 
 ### 2026-08-24 — patch 0017 multi-tile touch confirmation
 

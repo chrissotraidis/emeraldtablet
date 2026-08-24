@@ -17,6 +17,10 @@ art, audio, video, or trademarks.
 provisioning profiles, generated apps, IPAs, DMGs, and private screenshots
 must never be committed, packaged, or published.
 
+The public README gameplay image was explicitly selected and approved by the
+maintainer. It is included only to show Emerald Tablet running on iPad; it does
+not grant any license to the original game's art, interface, or trademarks.
+
 Before App Store, TestFlight, paid, notarized alternative-marketplace, or
 other public binary distribution, a current qualified legal and policy review
 is required. An unsigned IPA prepared later is a self-signing or sideloading

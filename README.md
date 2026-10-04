@@ -10,6 +10,8 @@
   <img alt="Physical iPad tested" src="https://img.shields.io/badge/physical%20iPad-tested-30D158">
   <img alt="Powered by Akhenaten" src="https://img.shields.io/badge/engine-Akhenaten-8B5A2B">
   <img alt="Pharaoh data not included" src="https://img.shields.io/badge/game%20data-not%20included-FF453A">
+  <a href="https://github.com/chrissotraidis/padmint"><img alt="Emerald Tablet setup in PadMint" src="https://img.shields.io/badge/PadMint-guided%20setup-3EB489"></a>
+  <a href="https://discord.gg/xwHfUD2bxW"><img alt="Join the Emerald Tablet Discord" src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&amp;logoColor=white"></a>
 </p>
 
 ![Emerald Tablet running Pharaoh and Cleopatra on a physical iPad](assets/screenshots/emerald-tablet-gameplay-ipad.png)
@@ -38,6 +40,14 @@ own legally obtained compatible files.
 [Touch and Pencil](#touch-and-apple-pencil-controls) · [What works](#what-works) ·
 [FAQ](#frequently-asked-questions) · [Compatibility](docs/COMPATIBILITY.md) ·
 [Project status](STATE.md)
+
+> [!NOTE]
+> **AI disclosure:** Emerald Tablet uses substantial AI assistance for code,
+> tests, documentation, debugging and maintenance. Some support replies and
+> maintenance tasks are automated. There is no audited percentage of
+> AI-generated code. Build, test and device records describe what was checked.
+> This disclosure concerns Emerald Tablet's workflow, not the authorship of its
+> upstream projects.
 
 ## Install status
 
@@ -348,6 +358,17 @@ requirements.
 The hero image was captured from the accepted physical-iPad build on August
 24, 2026. Its original game data was supplied locally and is not part of this
 repository.
+
+## Community and support
+
+[Join the Discord](https://discord.gg/xwHfUD2bxW) for help and news. It is one
+community for Emerald Tablet and its sibling projects, such as KartPad, BlueWake
+and MeleePad: ask about setup and installing, share how it runs on your device,
+and hear about new releases first.
+
+Found a bug? [Open an
+issue](https://github.com/chrissotraidis/emeraldtablet/issues) with your device,
+its OS version, and the steps that led to it.
 
 ## Legal and acknowledgements
 

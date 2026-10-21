@@ -54,12 +54,14 @@ fi
 
 mkdir -p "$BUILD_DIR"
 : > "$LOG_PATH"
+SDL_SOURCE_DIR="$("$ROOT_DIR/scripts/fetch-scene-sdl.sh")"
 
 {
     cmake -S "$ENGINE_DIR" -B "$BUILD_DIR" \
         -G Xcode \
         -DCMAKE_SYSTEM_NAME=iOS \
         -DCMAKE_OSX_SYSROOT=iphoneos \
+        -DFETCHCONTENT_SOURCE_DIR_SDL2="$SDL_SOURCE_DIR" \
         -DCMAKE_OSX_ARCHITECTURES="$ARCHS" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
         -DCMAKE_BUILD_TYPE="$BUILD_CONFIG" \

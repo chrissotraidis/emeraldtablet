@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000018 Mon Sep 17 00:00:00 2001
+Subject: [PATCH 0018] Start through UIKit scenes on iOS 27
+
+Purpose: Apps built with the iOS 27 SDK must start through UIKit scenes or
+iOS 27 closes them at launch. Declare a single application scene; the build
+uses SDL 2.32.10 plus the Pad ports UIKit scene startup commit
+(chrissotraidis/SDL c6756fc), which runs SDL_main once from that scene and
+attaches SDL windows and alerts to it.
+Upstream status: downstream Apple product patch; upstream SDL 2 has no scene
+startup.
+Affected platforms: iOS/iPadOS only (res/ios/Info.plist).
+Tests: clean ordered patch reconstruction, iOS Simulator build with Xcode 27
+launched on the iOS 27.0 Simulator, app audit.
+
+diff --git a/res/ios/Info.plist b/res/ios/Info.plist
+--- a/res/ios/Info.plist
++++ b/res/ios/Info.plist
+@@ -26,6 +26,11 @@
+ 	<true/>
+ 	<key>UIApplicationSupportsIndirectInputEvents</key>
+ 	<true/>
++	<key>UIApplicationSceneManifest</key>
++	<dict>
++		<key>UIApplicationSupportsMultipleScenes</key>
++		<false/>
++	</dict>
+ 	<key>UIFileSharingEnabled</key>
+ 	<true/>
+ 	<key>UIRequiresFullScreen</key>

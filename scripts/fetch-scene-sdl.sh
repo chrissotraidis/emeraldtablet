@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SDL_DIR="$ROOT_DIR/build/deps/sdl2-scenes"
-SDL_PIN="c6756fcd3de8090a8f72ac1a0b6fb6e50f0021d1"
+SDL_PIN="090b0c5ade61395078f9ac0756474d9e475f7fa7"
 
 if [[ "$(git -C "$SDL_DIR" rev-parse HEAD 2>/dev/null || true)" != "$SDL_PIN" ]]; then
     rm -rf "$SDL_DIR"

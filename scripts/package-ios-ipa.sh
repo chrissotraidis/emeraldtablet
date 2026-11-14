@@ -9,7 +9,7 @@ APP_PATH="${1:-$ROOT_DIR/build/ios-device/RelWithDebInfo-iphoneos/akhenaten.app}
 OUT_DIR="${IPA_OUT_DIR:-$ROOT_DIR/build/release}"
 IPA_NAME="${IPA_NAME:-EmeraldTablet-iOS-$(git -C "$ROOT_DIR" rev-parse --short HEAD).ipa}"
 IPA_VERSION="${IPA_VERSION:-0.1.0}"
-IPA_BUILD="${IPA_BUILD:-1}"
+IPA_BUILD="${IPA_BUILD:-2}"
 
 if [[ ! -d "$APP_PATH" ]]; then
     echo "iPhoneOS app not found: $APP_PATH (run scripts/build-ios-device.sh first)" >&2

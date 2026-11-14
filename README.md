@@ -53,7 +53,7 @@ own legally obtained compatible files.
 
 | Option | Status | What to do |
 |---|---|---|
-| Developer-preview IPA | **Available with a computer** | Download [preview 0.1.0 build 1](https://github.com/chrissotraidis/emeraldtablet/releases/tag/v0.1.0-preview.1), then re-sign it with your own Apple ID using a supported sideloading tool. |
+| Developer-preview IPA | **Available with a computer** | Download [preview 0.1.0 build 2](https://github.com/chrissotraidis/emeraldtablet/releases/tag/v0.1.0-preview.2), then re-sign it with your own Apple ID using a supported sideloading tool. |
 | Physical iPad or iPhone | **Developer build available** | Build and sign with your own Apple development team. iPad is the physically tested experience; iPhone remains a smaller-screen preview. |
 | iPhone or iPad Simulator | **Available** | Build without signing for development and UI testing. Simulator evidence is not physical-device acceptance. |
 | Apple Silicon Mac | **Available** | Build the self-contained arm64 app and select your own Pharaoh + Cleopatra folder. |
@@ -262,7 +262,7 @@ personal re-signing, not an App Store or TestFlight artifact.
 <details>
 <summary><strong>Where is the IPA?</strong></summary>
 
-[Download the unsigned developer-preview IPA from GitHub Releases](https://github.com/chrissotraidis/emeraldtablet/releases/tag/v0.1.0-preview.1).
+[Download the unsigned developer-preview IPA from GitHub Releases](https://github.com/chrissotraidis/emeraldtablet/releases/tag/v0.1.0-preview.2).
 It is an arm64 iPhone/iPad package for personal re-signing. It is not an App
 Store, TestFlight, or AltStore PAL release, and it contains no game data.
 </details>

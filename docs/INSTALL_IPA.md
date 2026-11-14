@@ -6,7 +6,7 @@ AltStore PAL release. A sideloading tool must re-sign it with your Apple ID.
 
 ## What you need
 
-- [The preview 0.1.0 build 1 IPA](https://github.com/chrissotraidis/emeraldtablet/releases/tag/v0.1.0-preview.1)
+- [The preview 0.1.0 build 2 IPA](https://github.com/chrissotraidis/emeraldtablet/releases/tag/v0.1.0-preview.2)
 - A Mac or Windows PC running AltServer and AltStore Classic, or another
   compatible personal re-signing workflow
 - Your own legally obtained Pharaoh + Cleopatra folder for the in-app import

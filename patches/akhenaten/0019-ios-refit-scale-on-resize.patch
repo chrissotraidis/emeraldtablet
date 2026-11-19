@@ -8,7 +8,8 @@ window (a TV is often 1280x720), but the resize path kept the old scale, so the
 screen. On iOS, each resize now re-applies the requested scale, which the
 engine caps at what fits the new window.
 Upstream status: downstream Apple product patch.
-Affected platforms: iOS/iPadOS only (src/core/app.cpp, GAME_PLATFORM_IOS).
+Affected platforms: iOS/iPadOS only (src/core/app.cpp, GAME_PLATFORM_IOS); scale_display
+becomes public in src/platform/screen.h so the resize handler can call it.
 Tests: clean ordered patch reconstruction; device check on an external display
 still to do.
 
@@ -38,3 +39,23 @@ diff --git a/src/core/app.cpp b/src/core/app.cpp
          break;
      case SDL_WINDOWEVENT_RESIZED:
          logs::info("System resize to %d x %d", (int)event.data1, (int)event.data2);
+diff --git a/src/platform/screen.h b/src/platform/screen.h
+--- a/src/platform/screen.h
++++ b/src/platform/screen.h
+@@ -34,12 +34,12 @@
+     void* surface_format();
+     vec2i get_max_resolution();
+     void recreate_texture();
++    int scale_display(int display_scale_percentage);
+ 
+ private:
+     void* window = nullptr;
+ 
+     void set_scale_percentage(int new_scale, int pixel_width, int pixel_height);
+-    int scale_display(int display_scale_percentage);
+ };
+ 
+-extern platform_screen_t g_platform_screen;
+\ No newline at end of file
++extern platform_screen_t g_platform_screen;EOFX
+\ No newline at end of file

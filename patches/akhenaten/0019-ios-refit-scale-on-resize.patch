@@ -6,7 +6,7 @@ Purpose: The iOS default display scale comes from the iPad's own screen
 window (a TV is often 1280x720), but the resize path kept the old scale, so the
 1024x768 interface grew larger than the window and menus such as Quit went off
 screen. On iOS, each resize now re-applies the requested scale, which the
-engine caps at what fits the new window.
+engine caps so the 1024x768 menus fit the new window.
 Upstream status: downstream Apple product patch.
 Affected platforms: iOS/iPadOS only (src/core/app.cpp, GAME_PLATFORM_IOS); scale_display
 becomes public in src/platform/screen.h so the resize handler can call it.
@@ -24,15 +24,19 @@ diff --git a/src/core/app.cpp b/src/core/app.cpp
  #include "graphics/screenshot.h"
  #include "core/log.h"
  #include "input/mouse.h"
-@@ -133,7 +134,14 @@
+@@ -133,7 +134,18 @@
          break;
      case SDL_WINDOWEVENT_SIZE_CHANGED:
          logs::info("Window resized to %d x %d", (int)event.data1, (int)event.data2);
 +#if defined(GAME_PLATFORM_IOS)
 +        // iPadOS resizes the window when it moves to an external display (a TV
-+        // is often 1280x720). Re-fit the scale to the new size, so the 1024x768
-+        // interface never ends up larger than the window.
-+        g_platform_screen.scale_display(g_args.get_display_scale_percentage());
++        // is often 1280x720). Re-fit the scale to the new size so the fixed
++        // 1024x768 menus always fit: 93% on a 1280x720 TV, the saved scale (133%
++        // on a 12.9-inch iPad) where it already fits.
++        {
++            const int fit = SDL_min(event.data1 * 100 / 1024, event.data2 * 100 / 768);
++            g_platform_screen.scale_display(SDL_min(g_args.get_display_scale_percentage(), SDL_max(fit, 50)));
++        }
 +#else
          g_platform_screen.resize(event.data1, event.data2, 1);
 +#endif

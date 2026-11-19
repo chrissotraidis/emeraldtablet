@@ -55,7 +55,5 @@ diff --git a/src/platform/screen.h b/src/platform/screen.h
 -    int scale_display(int display_scale_percentage);
  };
  
--extern platform_screen_t g_platform_screen;
-\ No newline at end of file
-+extern platform_screen_t g_platform_screen;EOFX
+ extern platform_screen_t g_platform_screen;
 \ No newline at end of file

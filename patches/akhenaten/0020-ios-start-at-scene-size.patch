@@ -26,6 +26,23 @@
      } else {
          // Prefer cfg/CLI size; std::max with gameopt default blocked lower resolutions.
          wsize = screen_size;
+@@ -161,6 +173,16 @@
+     // as the canvas size may differ from the requested size
+     if (g_render.is_fullscreen_only() || platform.is_emscripten()) {
+         SDL_GetWindowSize(as_sdl_window(window), &wsize.x, &wsize.y);
++#if defined(GAME_PLATFORM_IOS)
++        // SDL creates the window at the iPad's own (portrait) size even when the
++        // scene is on a TV; the menus would be laid out for that tall canvas.
++        vec2i scene;
++        if (ios_overlay::active_scene_size(scene.x, scene.y)) {
++            if (scene.x != wsize.x || scene.y != wsize.y)
++                logs::info("iOS window %d x %d, using scene %d x %d", wsize.x, wsize.y, scene.x, scene.y);
++            wsize = scene;
++        }
++#endif
+     }
+ 
+     if (!platform_renderer_init(as_sdl_window(window), renderer)) {
 --- a/src/platform/platform_ios_overlay.h
 +++ b/src/platform/platform_ios_overlay.h
 @@ -21,6 +21,11 @@

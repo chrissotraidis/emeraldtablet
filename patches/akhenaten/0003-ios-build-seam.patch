@@ -304,7 +304,7 @@ new file mode 100644
 index 000000000..92e0cf2a3
 --- /dev/null
 +++ b/res/ios/Info.plist
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,61 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 +<plist version="1.0">
@@ -317,6 +317,15 @@ index 000000000..92e0cf2a3
 +	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
 +	<key>CFBundleIdentifier</key>
 +	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
++	<key>CFBundleURLTypes</key>
++	<array>
++		<dict>
++			<key>CFBundleURLSchemes</key>
++			<array>
++				<string>padmint-emeraldtablet</string>
++			</array>
++		</dict>
++	</array>
 +	<key>CFBundleInfoDictionaryVersion</key>
 +	<string>6.0</string>
 +	<key>CFBundleName</key>
@@ -335,6 +344,8 @@ index 000000000..92e0cf2a3
 +	<true/>
 +	<key>UIRequiresFullScreen</key>
 +	<true/>
++	<key>UIRequiresFullScreenIgnoredStartingWithVersion</key>
++	<string>26</string>
 +	<key>UILaunchScreen</key>
 +	<dict/>
 +	<key>UIStatusBarHidden</key>
@@ -348,6 +359,8 @@ index 000000000..92e0cf2a3
 +	</array>
 +	<key>UISupportedInterfaceOrientations~ipad</key>
 +	<array>
++		<string>UIInterfaceOrientationPortrait</string>
++		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 +		<string>UIInterfaceOrientationLandscapeLeft</string>
 +		<string>UIInterfaceOrientationLandscapeRight</string>
 +	</array>
@@ -825,7 +838,7 @@ new file mode 100644
 index 000000000..6546a3eb6
 --- /dev/null
 +++ b/src/platform/platform_ios.cpp
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,128 @@
 +#include "platform.h"
 +
 +#if defined(GAME_PLATFORM_IOS)
@@ -867,9 +880,12 @@ index 000000000..6546a3eb6
 +    return 0;
 +}
 +
++extern "C" bool EmeraldTabletIsIPad();
++
 +void platform_post_hint_init() {
-+    // Landscape-first product view (the city and menus are wide layouts).
-+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
++    SDL_SetHint(SDL_HINT_ORIENTATIONS, EmeraldTabletIsIPad()
++        ? "Portrait PortraitUpsideDown LandscapeLeft LandscapeRight"
++        : "LandscapeLeft LandscapeRight");
 +    // A pure-SDL UIKit app owns the whole screen; keep the home indicator
 +    // out of the way in the landscape view.
 +    SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "1");
@@ -988,7 +1004,7 @@ new file mode 100644
 index 000000000..1d3ccd522
 --- /dev/null
 +++ b/src/platform/platform_ios_picker.mm
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,333 @@
 +#include "platform_ios_picker.h"
 +
 +#if defined(GAME_PLATFORM_IOS)
@@ -1002,6 +1018,10 @@ index 000000000..1d3ccd522
 +#include <atomic>
 +#include <mutex>
 +#include <string>
++
++extern "C" bool EmeraldTabletIsIPad() {
++    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
++}
 +
 +namespace ios_picker {
 +

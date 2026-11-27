@@ -1,0 +1,90 @@
+--- a/src/platform/screen.cpp
++++ b/src/platform/screen.cpp
+@@ -12,6 +12,7 @@
+ #include "platform/android/android.h"
+ #include "platform/platform.h"
+ #include "platform/renderer.h"
++#include "platform/platform_ios_overlay.h"
+ #include "platform/switch/switch.h"
+ #include "platform/vita/vita.h"
+ #include "resource/icons.h"
+@@ -105,6 +106,17 @@
+         SDL_DisplayMode mode;
+         SDL_GetDesktopDisplayMode(0, &mode);
+         wsize = {mode.w, mode.h};
++#if defined(GAME_PLATFORM_IOS)
++        // The UI scripts read the screen size once, when they load, so start at
++        // the size the game will really have: the scene's (a TV is often
++        // 1280x720), with the scale fitted to the 1024x768 menus as on resize.
++        if (ios_overlay::active_scene_size(wsize.x, wsize.y)) {
++            const int fit = SDL_min(wsize.x * 100 / 1024, wsize.y * 100 / 768);
++            display_scale_percentage = SDL_min(display_scale_percentage, SDL_max(fit, 50));
++            set_scale_percentage(display_scale_percentage, 0, 0);
++            logs::info("iOS scene %d x %d, scale %d%%", wsize.x, wsize.y, scale_percentage);
++        }
++#endif
+     } else {
+         // Prefer cfg/CLI size; std::max with gameopt default blocked lower resolutions.
+         wsize = screen_size;
+@@ -161,6 +173,16 @@
+     // as the canvas size may differ from the requested size
+     if (g_render.is_fullscreen_only() || platform.is_emscripten()) {
+         SDL_GetWindowSize(as_sdl_window(window), &wsize.x, &wsize.y);
++#if defined(GAME_PLATFORM_IOS)
++        // SDL creates the window at the iPad's own (portrait) size even when the
++        // scene is on a TV; the menus would be laid out for that tall canvas.
++        vec2i scene;
++        if (ios_overlay::active_scene_size(scene.x, scene.y)) {
++            if (scene.x != wsize.x || scene.y != wsize.y)
++                logs::info("iOS window %d x %d, using scene %d x %d", wsize.x, wsize.y, scene.x, scene.y);
++            wsize = scene;
++        }
++#endif
+     }
+ 
+     if (!platform_renderer_init(as_sdl_window(window), renderer)) {
+--- a/src/platform/platform_ios_overlay.h
++++ b/src/platform/platform_ios_overlay.h
+@@ -21,6 +21,11 @@
+ // keyboard while preserving SDL text input events.
+ bool hardware_keyboard_connected();
+ 
++// The size in points of the scene the game shows in (a TV when iPadOS puts the
++// app on an external display). SDL's desktop display mode is always the iPad's
++// own screen, often portrait. False when no scene is connected yet.
++bool active_scene_size(int &width, int &height);
++
+ } // namespace ios_overlay
+ 
+ #endif
+--- a/src/platform/platform_ios_overlay.mm
++++ b/src/platform/platform_ios_overlay.mm
+@@ -421,6 +421,28 @@
+         return [GCKeyboard coalescedKeyboard] != nil;
+     }
+     return false;
++}
++
++bool active_scene_size(int &width, int &height) {
++    UIWindowScene *found = nil;
++    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
++        if (![scene isKindOfClass:[UIWindowScene class]])
++            continue;
++        if (scene.activationState == UISceneActivationStateForegroundActive) {
++            found = (UIWindowScene *)scene;
++            break;
++        }
++        if (scene.activationState == UISceneActivationStateForegroundInactive && found == nil)
++            found = (UIWindowScene *)scene;
++    }
++    if (found == nil)
++        return false;
++    const CGSize size = found.coordinateSpace.bounds.size;
++    if (size.width < 1 || size.height < 1)
++        return false;
++    width = (int)size.width;
++    height = (int)size.height;
++    return true;
+ }
+ 
+ } // namespace ios_overlay
